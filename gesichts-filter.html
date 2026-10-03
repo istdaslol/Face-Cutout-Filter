@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Augen & Mund auf PNG</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{--bg:#1d1b19;--panel:#2a2724;--ink:#f1ece4;--mute:#a39b8f;--acc:#ffb347;--L:#4cc9f0;--R:#80ed99;--M:#ff6b81}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 "Trebuchet MS",system-ui,sans-serif;display:grid;grid-template-columns:340px 1fr;min-height:100vh}
+aside{background:var(--panel);padding:16px;overflow:auto;max-height:100vh}
+h1{font-size:20px;margin:0 0 4px}
+p.s{color:var(--mute);margin:0 0 14px;font-size:13px}
+h2{font-size:14px;margin:18px 0 6px}
+button,select{background:#3a3631;color:var(--ink);border:1px solid #55504a;border-radius:6px;padding:7px 10px;font:inherit;cursor:pointer}
+button:hover{border-color:var(--acc)}button.p{background:var(--acc);color:#222;border-color:var(--acc);font-weight:700}
+button.sel{outline:2px solid var(--acc)}
+label{display:block;font-size:13px;color:var(--mute);margin-top:8px}
+label.c{display:flex;gap:8px;align-items:center;color:var(--ink)}
+input[type=range]{width:100%}
+#ed{width:100%;border-radius:6px;touch-action:none;cursor:crosshair;background:repeating-conic-gradient(#3a3631 0 25%,#2f2c28 0 50%) 0 0/16px 16px;display:block}
+.row{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
+main{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px;gap:8px;min-width:0}
+#out{max-width:100%;max-height:88vh;background:#000;border-radius:8px}
+#st{color:var(--mute);font-size:13px}
+body.only{grid-template-columns:1fr}body.only aside,body.only #st{display:none}body.only #out{max-height:100vh;border-radius:0}
+@media(max-width:800px){body{grid-template-columns:1fr}aside{max-height:none}}
+</style>
+</head>
+<body>
+<aside>
+<h1>Augen & Mund auf PNG</h1>
+<p class="s">Alles läuft lokal im Browser. Beim ersten Start wird das Gesichtsmodell geladen (Internet nötig).</p>
+<div class="row"><button class="p" id="cam">Kamera starten</button><select id="dev" hidden></select></div>
+
+<h2>1. Bild wählen</h2>
+<div class="row"><button id="up">PNG laden</button><button id="def">Erdnuss</button></div>
+<p class="s">Auch per Drag & Drop oder Strg+V einfügbar.</p>
+<input type="file" id="file" accept="image/*" hidden>
+
+<h2>2. Positionen setzen</h2>
+<div class="row">
+<button data-h="0" class="sel" style="color:var(--L)">Auge links</button>
+<button data-h="1" style="color:var(--R)">Auge rechts</button>
+<button data-h="2" style="color:var(--M)">Mund</button></div>
+<canvas id="ed"></canvas>
+<p class="s">Marker ziehen oder ins Bild klicken. Der gewählte Marker springt dorthin.</p>
+
+<h2>3. Feinjustierung</h2>
+<label>Bildgröße<input type="range" id="sP" min="0.2" max="2.5" step="0.01" value="1"></label>
+<label>Augengröße<input type="range" id="sE" min="0.4" max="3" step="0.01" value="1"></label>
+<label>Mundgröße<input type="range" id="sM" min="0.4" max="3" step="0.01" value="1"></label>
+<label>Ausschnitt-Rand<input type="range" id="sX" min="1" max="1.8" step="0.01" value="1.25"></label>
+<label>Weiche Kante<input type="range" id="sF" min="0" max="20" step="1" value="8"></label>
+<label class="c"><input type="checkbox" id="brow" checked> Augenbrauen mitnehmen</label>
+<label class="c"><input type="checkbox" id="mir" checked> Spiegeln</label>
+<label>Hintergrund
+<select id="bg"><option value="cam">Kamerabild</option><option value="#00ff00">Greenscreen</option><option value="#000000">Schwarz</option><option value="#ffffff">Weiß</option></select></label>
+<div class="row" style="margin-top:14px"><button id="only">Nur Ausgabe (für OBS)</button></div>
+<p class="s">OBS: Fenster- oder Anzeigeaufnahme, bei Greenscreen zusätzlich Chroma-Key. Beenden mit Esc.</p>
+</aside>
+<main><canvas id="out" width="1280" height="720"></canvas><div id="st">Kamera starten, um zu beginnen.</div></main>
+<video id="v" playsinline muted hidden></video>
+
+<script type="module">
+import {FaceLandmarker,FilesetResolver} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+const $=id=>document.getElementById(id);
+const out=$("out"),oc=out.getContext("2d"),v=$("v"),ed=$("ed"),ec=ed.getContext("2d"),st=$("st");
+const frame=document.createElement("canvas"),fc=frame.getContext("2d");
+const scr=document.createElement("canvas");scr.width=scr.height=700;const sc=scr.getContext("2d");
+const EA=[33,7,163,144,145,153,154,155,133,173,157,158,159,160,161,246],BA=[70,63,105,66,107,46,53,52,65,55];
+const EB=[263,249,390,373,374,380,381,382,362,466,388,387,386,385,384,398],BB=[300,293,334,296,336,276,283,282,295,285];
+const LIPS=[61,146,91,181,84,17,314,405,321,375,291,409,270,269,267,0,37,39,40,185];
+const COL=["#4cc9f0","#80ed99","#ff6b81"],NAME=["L","R","M"];
+let img=new Image(),anch=[[.33,.3],[.67,.3],[.5,.72]],cur=0,lm,smooth=null,det=null,lastT=-1;
+
+// ---------- Bild ----------
+function peanut(){
+  const c=document.createElement("canvas");c.width=600;c.height=800;const x=c.getContext("2d");
+  const parts=[[300,230,170],[300,540,210]];
+  x.fillStyle="#6b4423";parts.forEach(p=>{x.beginPath();x.arc(p[0],p[1],p[2]+12,0,7);x.fill()});
+  x.fillStyle="#d9a864";parts.forEach(p=>{x.beginPath();x.arc(p[0],p[1],p[2],0,7);x.fill()});
+  x.fillStyle="#b8864a";for(let i=0;i<90;i++){const t=Math.random()*6.28,r=Math.sqrt(Math.random()),p=parts[i%2];x.beginPath();x.arc(p[0]+Math.cos(t)*r*p[2]*.9,p[1]+Math.sin(t)*r*p[2]*.9,3+Math.random()*3,0,7);x.fill()}
+  return c.toDataURL();
+}
+function setImg(src,keep){img=new Image();img.onload=()=>{if(!keep)anch=[[.33,.3],[.67,.3],[.5,.72]];drawEd()};img.src=src}
+function loadFile(f){if(f&&f.type.startsWith("image/")){const r=new FileReader();r.onload=()=>setImg(r.result);r.readAsDataURL(f)}}
+$("up").onclick=()=>$("file").click();$("file").onchange=e=>loadFile(e.target.files[0]);
+$("def").onclick=()=>{setImg(peanut(),false);anch=[[.38,.29],[.62,.29],[.5,.68]];};
+addEventListener("dragover",e=>e.preventDefault());addEventListener("drop",e=>{e.preventDefault();loadFile(e.dataTransfer.files[0])});
+addEventListener("paste",e=>{for(const i of e.clipboardData.items)if(i.type.startsWith("image/"))loadFile(i.getAsFile())});
+
+// ---------- Editor ----------
+function drawEd(){
+  const w=ed.clientWidth||300,h=Math.round(w*(img.naturalHeight||1)/(img.naturalWidth||1));
+  ed.width=w;ed.height=h;ed.style.height=h+"px";ec.clearRect(0,0,w,h);ec.drawImage(img,0,0,w,h);
+  anch.forEach((a,i)=>{const x=a[0]*w,y=a[1]*h;ec.beginPath();ec.arc(x,y,13,0,7);ec.fillStyle=COL[i]+"99";ec.fill();ec.lineWidth=3;ec.strokeStyle=COL[i];ec.stroke();
+    ec.fillStyle="#000";ec.font="bold 12px sans-serif";ec.textAlign="center";ec.textBaseline="middle";ec.fillText(NAME[i],x,y)});
+}
+document.querySelectorAll("[data-h]").forEach(b=>b.onclick=()=>{cur=+b.dataset.h;document.querySelectorAll("[data-h]").forEach(o=>o.classList.toggle("sel",o===b))});
+let drag=-1;
+function pos(e){const r=ed.getBoundingClientRect();return[(e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height]}
+ed.onpointerdown=e=>{ed.setPointerCapture(e.pointerId);const p=pos(e),r=ed.getBoundingClientRect();
+  let best=-1,bd=24;anch.forEach((a,i)=>{const d=Math.hypot((a[0]-p[0])*r.width,(a[1]-p[1])*r.height);if(d<bd){bd=d;best=i}});
+  drag=best>=0?best:cur;anch[drag]=p;drawEd()};
+ed.onpointermove=e=>{if(drag>=0){anch[drag]=pos(e);drawEd()}};ed.onpointerup=()=>drag=-1;
+addEventListener("resize",drawEd);
+
+// ---------- Kamera + Modell ----------
+async function initModel(){
+  st.textContent="Lade Gesichtsmodell …";
+  const fs=await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+  const o=d=>({baseOptions:{modelAssetPath:"https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",delegate:d},runningMode:"VIDEO",numFaces:1});
+  try{lm=await FaceLandmarker.createFromOptions(fs,o("GPU"))}catch(e){lm=await FaceLandmarker.createFromOptions(fs,o("CPU"))}
+}
+async function startCam(id){
+  if(v.srcObject)v.srcObject.getTracks().forEach(t=>t.stop());
+  v.srcObject=await navigator.mediaDevices.getUserMedia({video:{deviceId:id?{exact:id}:undefined,width:1280,height:720}});
+  await v.play();out.width=frame.width=v.videoWidth;out.height=frame.height=v.videoHeight;
+  const ds=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="videoinput");
+  if(ds.length>1){$("dev").hidden=false;$("dev").innerHTML=ds.map(d=>`<option value="${d.deviceId}">${d.label||"Kamera"}</option>`).join("")}
+}
+$("cam").onclick=async()=>{try{$("cam").disabled=true;if(!lm)await initModel();await startCam();st.textContent="Läuft.";$("cam").textContent="Neu starten";requestAnimationFrame(loop)}catch(e){st.textContent="Fehler: "+e.message}finally{$("cam").disabled=false}};
+$("dev").onchange=e=>startCam(e.target.value);
+$("only").onclick=()=>document.body.classList.add("only");
+addEventListener("keydown",e=>{if(e.key==="Escape")document.body.classList.remove("only")});
+out.ondblclick=()=>document.body.classList.toggle("only");
+
+// ---------- Geometrie ----------
+function hull(p){p=p.slice().sort((a,b)=>a[0]-b[0]||a[1]-b[1]);const cr=(o,a,b)=>(a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]);
+  const lo=[],up=[];for(const q of p){while(lo.length>1&&cr(lo[lo.length-2],lo[lo.length-1],q)<=0)lo.pop();lo.push(q)}
+  for(const q of p.slice().reverse()){while(up.length>1&&cr(up[up.length-2],up[up.length-1],q)<=0)up.pop();up.push(q)}
+  return lo.slice(0,-1).concat(up.slice(0,-1))}
+const mean=a=>[a.reduce((s,p)=>s+p[0],0)/a.length,a.reduce((s,p)=>s+p[1],0)/a.length];
+
+// schneidet Region aus dem Kamerabild und liefert {canvas,w,h,cx,cy}
+function cut(pts,grow,feather){
+  const hl=hull(pts),c=mean(hl),g=hl.map(p=>[c[0]+(p[0]-c[0])*grow,c[1]+(p[1]-c[1])*grow]);
+  const m=feather*2+2;let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;g.forEach(p=>{x0=Math.min(x0,p[0]);y0=Math.min(y0,p[1]);x1=Math.max(x1,p[0]);y1=Math.max(y1,p[1])});
+  x0=Math.floor(x0-m);y0=Math.floor(y0-m);const w=Math.min(700,Math.ceil(x1-x0+m)),h=Math.min(700,Math.ceil(y1-y0+m));
+  sc.clearRect(0,0,700,700);sc.globalCompositeOperation="source-over";
+  if("filter"in sc)sc.filter=`blur(${feather}px)`;
+  sc.fillStyle="#fff";sc.beginPath();g.forEach((p,i)=>i?sc.lineTo(p[0]-x0,p[1]-y0):sc.moveTo(p[0]-x0,p[1]-y0));sc.closePath();sc.fill();
+  if("filter"in sc)sc.filter="none";
+  sc.globalCompositeOperation="source-in";sc.drawImage(frame,x0,y0,w,h,0,0,w,h);sc.globalCompositeOperation="source-over";
+  return{w,h,cx:c[0]-x0,cy:c[1]-y0};
+}
+function stamp(info,x,y,s){oc.drawImage(scr,0,0,info.w,info.h,x-info.cx*s,y-info.cy*s,info.w*s,info.h*s)}
+
+// ---------- Hauptschleife ----------
+function loop(){
+  requestAnimationFrame(loop);
+  const W=out.width,H=out.height,mir=$("mir").checked;
+  fc.save();if(mir){fc.translate(W,0);fc.scale(-1,1)}fc.drawImage(v,0,0,W,H);fc.restore();
+  if(v.currentTime!==lastT&&lm){lastT=v.currentTime;const r=lm.detectForVideo(v,performance.now());det=r.faceLandmarks[0]||null}
+  const bg=$("bg").value;
+  if(bg==="cam")oc.drawImage(frame,0,0);else{oc.fillStyle=bg;oc.fillRect(0,0,W,H)}
+  if(!det){smooth=null;return}
+  const raw=det.map(p=>[(mir?1-p.x:p.x)*W,p.y*H]);
+  smooth=smooth?raw.map((p,i)=>[smooth[i][0]+(p[0]-smooth[i][0])*.6,smooth[i][1]+(p[1]-smooth[i][1])*.6]):raw;
+  const P=i=>smooth[i],brow=$("brow").checked;
+  const A=EA.concat(brow?BA:[]).map(P),B=EB.concat(brow?BB:[]).map(P);
+  let eyes=[mean(EA.map(P)),mean(EB.map(P))].sort((a,b)=>a[0]-b[0]);
+  const gA=[A,B].sort((a,b)=>mean(a)[0]-mean(b)[0]);
+  const mid=mean(eyes),roll=Math.atan2(eyes[1][1]-eyes[0][1],eyes[1][0]-eyes[0][0]),d=Math.hypot(eyes[1][0]-eyes[0][0],eyes[1][1]-eyes[0][1]);
+  // Bild
+  const iw=img.naturalWidth,ih=img.naturalHeight;if(!iw)return;
+  const k=$("sP").value*(d/(H*.16))*(H*.6/ih),pv=[(anch[0][0]+anch[1][0])/2,(anch[0][1]+anch[1][1])/2];
+  oc.save();oc.translate(mid[0],mid[1]);oc.rotate(roll);oc.scale(k,k);oc.translate(-pv[0]*iw,-pv[1]*ih);oc.drawImage(img,0,0);oc.restore();
+  const cs=Math.cos(roll),sn=Math.sin(roll);
+  const scrPos=a=>{const lx=(a[0]-pv[0])*iw*k,ly=(a[1]-pv[1])*ih*k;return[mid[0]+lx*cs-ly*sn,mid[1]+lx*sn+ly*cs]};
+  const grow=+$("sX").value,f=+$("sF").value,es=+$("sE").value,ms=+$("sM").value;
+  [0,1].forEach(i=>{const info=cut(gA[i],grow,f),p=scrPos(anch[i]);stamp(info,p[0],p[1],es)});
+  const mi=cut(LIPS.map(P),grow+.1,f),mp=scrPos(anch[2]);stamp(mi,mp[0],mp[1],ms);
+}
+setImg(peanut(),false);anch=[[.38,.29],[.62,.29],[.5,.68]];
+</script>
+</body>
+</html>
