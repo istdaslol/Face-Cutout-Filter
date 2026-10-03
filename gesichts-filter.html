@@ -5,14 +5,15 @@
 <title>Augen & Mund auf PNG</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-:root{--bg:#1d1b19;--panel:#2a2724;--ink:#f1ece4;--mute:#a39b8f;--acc:#ffb347;--L:#4cc9f0;--R:#80ed99;--M:#ff6b81}
-*{box-sizing:border-box}
+:root{--bg:#1d1b19;--panel:#2a2724;--ink:#f1ece4;--mute:#a39b8f;--acc:#ffb347}
+*{box-sizing:border-box}[hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 "Trebuchet MS",system-ui,sans-serif;display:grid;grid-template-columns:340px 1fr;min-height:100vh}
 aside{background:var(--panel);padding:16px;overflow:auto;max-height:100vh}
 h1{font-size:20px;margin:0 0 4px}
 p.s{color:var(--mute);margin:0 0 14px;font-size:13px}
 h2{font-size:14px;margin:18px 0 6px}
 button,select{background:#3a3631;color:var(--ink);border:1px solid #55504a;border-radius:6px;padding:7px 10px;font:inherit;cursor:pointer}
+select{width:100%}
 button:hover{border-color:var(--acc)}button.p{background:var(--acc);color:#222;border-color:var(--acc);font-weight:700}
 button.sel{outline:2px solid var(--acc)}
 label{display:block;font-size:13px;color:var(--mute);margin-top:8px}
@@ -33,21 +34,29 @@ body.only{grid-template-columns:1fr}body.only aside,body.only #st{display:none}b
 <p class="s">Alles läuft lokal im Browser. Beim ersten Start wird das Gesichtsmodell geladen (Internet nötig).</p>
 <div class="row"><button class="p" id="cam">Kamera starten</button><select id="dev" hidden></select></div>
 
-<h2>1. Bild wählen</h2>
-<div class="row"><button id="up">PNG laden</button><button id="def">Erdnuss</button></div>
-<p class="s">Auch per Drag & Drop oder Strg+V einfügbar.</p>
+<h2>1. Modus</h2>
+<select id="mode"><option value="0">Einfach: PNG folgt dem Gesicht (ohne Körper)</option><option value="1" selected>Ein PNG mit Markern (Kopf, Hals, Körper)</option><option value="2">Zwei PNGs: Kopf + Körper</option></select>
+
+<h2>2. Bilder</h2>
+<div class="row"><button id="up">Eigene Datei</button><button id="up2" class="two" hidden>Eigenes Körper-PNG</button><button id="pea">Erdnuss</button><button id="def">Demo</button></div>
+<div class="row two" hidden><button data-v="main" class="sel">Kopf bearbeiten</button><button data-v="body">Körper bearbeiten</button></div>
+<p class="s">Auch per Drag & Drop oder Strg+V (lädt in die gerade bearbeitete Ebene).</p>
 <input type="file" id="file" accept="image/*" hidden>
 
-<h2>2. Positionen setzen</h2>
-<div class="row">
-<button data-h="0" class="sel" style="color:var(--L)">Auge links</button>
-<button data-h="1" style="color:var(--R)">Auge rechts</button>
-<button data-h="2" style="color:var(--M)">Mund</button></div>
+<h2>3. Marker setzen</h2>
+<div class="row" id="mk"></div>
 <canvas id="ed"></canvas>
-<p class="s">Marker ziehen oder ins Bild klicken. Der gewählte Marker springt dorthin.</p>
+<p class="s" id="hint"></p>
 
-<h2>3. Feinjustierung</h2>
-<label>Bildgröße<input type="range" id="sP" min="0.2" max="2.5" step="0.01" value="1"></label>
+<h2>4. Bewegung</h2>
+<div class="row ns"><button id="neu">Ruhelage setzen</button></div>
+<p class="s ns">Sitz gerade vor der Kamera und klicke den Knopf. Danach zählt nur die Abweichung davon.</p>
+<label class="ns">Kopf folgt (Stärke)<input type="range" id="sFo" min="0" max="1.5" step="0.01" value="1"></label>
+<label>Bildgröße<input type="range" id="sP" min="0.3" max="1.5" step="0.01" value="1"></label>
+<label class="two" hidden>Kopf zu Körper (Größe)<input type="range" id="sHR" min="0.4" max="2.5" step="0.01" value="1"></label>
+<label class="c two" hidden><input type="checkbox" id="bh"> Kopf hinter Körper</label>
+
+<h2>5. Augen & Mund</h2>
 <label>Augengröße<input type="range" id="sE" min="0.4" max="3" step="0.01" value="1"></label>
 <label>Mundgröße<input type="range" id="sM" min="0.4" max="3" step="0.01" value="1"></label>
 <label>Ausschnitt-Rand<input type="range" id="sX" min="1" max="1.8" step="0.01" value="1.25"></label>
@@ -64,6 +73,14 @@ body.only{grid-template-columns:1fr}body.only aside,body.only #st{display:none}b
 
 <script type="module">
 import {FaceLandmarker,FilesetResolver} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+// ===== EINSTELLUNGEN: Demo-Bild =====
+const HAUTFARBE="#f1cfb0"; // z.B. #fbe3d0 (sehr hell), #f1cfb0 (hell), #e0ac84 (mittel)
+const KONTUR="#b98e6a";    // Umrisslinie der Haut
+const SHIRT="#3d5a80";     // Farbe des Oberteils
+const SHIRT_BREITE=420;  // Breite in Pixeln, maximal 600
+const SHIRT_HOEHE=180;   // Sichtbare Höhe ab dem Halsansatz, maximal 330
+const SHIRT_RUNDUNG=70;   // Rundung der Ecken
+// ==================================================
 const $=id=>document.getElementById(id);
 const out=$("out"),oc=out.getContext("2d"),v=$("v"),ed=$("ed"),ec=ed.getContext("2d"),st=$("st");
 const frame=document.createElement("canvas"),fc=frame.getContext("2d");
@@ -71,39 +88,71 @@ const scr=document.createElement("canvas");scr.width=scr.height=700;const sc=scr
 const EA=[33,7,163,144,145,153,154,155,133,173,157,158,159,160,161,246],BA=[70,63,105,66,107,46,53,52,65,55];
 const EB=[263,249,390,373,374,380,381,382,362,466,388,387,386,385,384,398],BB=[300,293,334,296,336,276,283,282,295,285];
 const LIPS=[61,146,91,181,84,17,314,405,321,375,291,409,270,269,267,0,37,39,40,185];
-const COL=["#4cc9f0","#80ed99","#ff6b81"],NAME=["L","R","M"];
-let img=new Image(),anch=[[.33,.3],[.67,.3],[.5,.72]],cur=0,lm,smooth=null,det=null,lastT=-1;
+const DEF=[["Auge links","#4cc9f0","L"],["Auge rechts","#80ed99","R"],["Mund","#ff6b81","M"],["Hals oben","#ffd166","H"],["Hals unten","#c77dff","P"]];
+const D5=[[.4,.27],[.6,.27],[.5,.4],[.5,.475],[.5,.59]];
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+let I={main:new Image(),body:new Image()},P={main:D5.map(a=>a.slice()),body:[[.5,.1]]};
+let view="main",cur=0,two=false,simple=false,lm,smooth=null,det=null,lastT=-1,neu=null,wantN=false;
 
-// ---------- Bild ----------
-function peanut(){
+// ---------- Demo & Bilder ----------
+function demo(){ // glatzköpfiges Gesicht ohne Ohren, Farben siehe EINSTELLUNGEN oben
+  const c=document.createElement("canvas");c.width=600;c.height=470+SHIRT_HOEHE;const x=c.getContext("2d");
+  x.lineWidth=10;x.strokeStyle=KONTUR;x.lineJoin="round";x.lineCap="round";
+  const sh=(col,f)=>{x.fillStyle=col;x.beginPath();f();x.fill();x.stroke()};
+  sh(SHIRT,()=>x.roundRect((600-SHIRT_BREITE)/2,470,SHIRT_BREITE,SHIRT_HOEHE+40,70));
+  sh(HAUTFARBE,()=>x.rect(262,370,76,100));
+  sh(HAUTFARBE,()=>x.ellipse(300,230,142,176,0,0,7));
+  x.beginPath();x.moveTo(300,225);x.quadraticCurveTo(288,265,300,278);x.quadraticCurveTo(312,282,322,276);x.stroke(); // Nase
+  return c}
+function peanut(){ // ursprüngliche Erdnuss
   const c=document.createElement("canvas");c.width=600;c.height=800;const x=c.getContext("2d");
   const parts=[[300,230,170],[300,540,210]];
-  x.fillStyle="#6b4423";parts.forEach(p=>{x.beginPath();x.arc(p[0],p[1],p[2]+12,0,7);x.fill()});
-  x.fillStyle="#d9a864";parts.forEach(p=>{x.beginPath();x.arc(p[0],p[1],p[2],0,7);x.fill()});
-  x.fillStyle="#b8864a";for(let i=0;i<90;i++){const t=Math.random()*6.28,r=Math.sqrt(Math.random()),p=parts[i%2];x.beginPath();x.arc(p[0]+Math.cos(t)*r*p[2]*.9,p[1]+Math.sin(t)*r*p[2]*.9,3+Math.random()*3,0,7);x.fill()}
-  return c.toDataURL();
-}
-function setImg(src,keep){img=new Image();img.onload=()=>{if(!keep)anch=[[.33,.3],[.67,.3],[.5,.72]];drawEd()};img.src=src}
-function loadFile(f){if(f&&f.type.startsWith("image/")){const r=new FileReader();r.onload=()=>setImg(r.result);r.readAsDataURL(f)}}
-$("up").onclick=()=>$("file").click();$("file").onchange=e=>loadFile(e.target.files[0]);
-$("def").onclick=()=>{setImg(peanut(),false);anch=[[.38,.29],[.62,.29],[.5,.68]];};
+  x.fillStyle="#6b4423";parts.forEach(q=>{x.beginPath();x.arc(q[0],q[1],q[2]+12,0,7);x.fill()});
+  x.fillStyle="#d9a864";parts.forEach(q=>{x.beginPath();x.arc(q[0],q[1],q[2],0,7);x.fill()});
+  x.fillStyle="#b8864a";for(let i=0;i<90;i++){const t=Math.random()*6.28,rr=Math.sqrt(Math.random()),q=parts[i%2];x.beginPath();x.arc(q[0]+Math.cos(t)*rr*q[2]*.9,q[1]+Math.sin(t)*rr*q[2]*.9,3+Math.random()*3,0,7);x.fill()}
+  return c}
+const crop=(c,y0,y1)=>{const o=document.createElement("canvas");o.width=600;o.height=y1-y0;o.getContext("2d").drawImage(c,0,y0,600,y1-y0,0,0,600,y1-y0);return o.toDataURL()};
+function setImg(k,src,pts){const im=new Image();im.onload=()=>{I[k]=im;P[k]=pts||(k==="main"?D5.map(a=>a.slice()):[[.5,.1]]);drawEd()};im.src=src}
+function loadDemo(){const c=demo(),h=c.height;
+  if(!two)setImg("main",c.toDataURL(),[[.4,216/h],[.6,216/h],[.5,320/h],[.5,380/h],[.5,472/h]]);
+  else{setImg("main",crop(c,0,470),[[.4,.457],[.6,.457],[.5,.67],[.5,.9],[.5,.968]]);setImg("body",crop(c,430,h),[[.5,25/(h-430)]])}}
+function loadFile(f){if(f&&f.type.startsWith("image/")){const r=new FileReader();r.onload=()=>setImg(view,r.result);r.readAsDataURL(f)}}
+$("def").onclick=loadDemo;
+$("pea").onclick=()=>{setView("main");setImg("main",peanut().toDataURL(),[[.38,.29],[.62,.29],[.5,.68],[.5,.9],[.5,.97]])};
+$("up").onclick=()=>{setView("main");$("file").click()};$("up2").onclick=()=>{setView("body");$("file").click()};
+$("file").onchange=e=>{loadFile(e.target.files[0]);e.target.value=""};
 addEventListener("dragover",e=>e.preventDefault());addEventListener("drop",e=>{e.preventDefault();loadFile(e.dataTransfer.files[0])});
 addEventListener("paste",e=>{for(const i of e.clipboardData.items)if(i.type.startsWith("image/"))loadFile(i.getAsFile())});
 
+// ---------- Modus & Marker ----------
+const idxs=()=>view==="body"?[0]:simple?[0,1,2]:two?[0,1,2,4]:[0,1,2,3,4];
+const def=i=>view==="body"?["Hals-Anker","#ffd166","A"]:(two&&i===4?["Hals-Pivot",DEF[4][1],"P"]:DEF[i]);
+function setView(vw){view=vw;cur=idxs()[0];
+  document.querySelectorAll("[data-v]").forEach(b=>b.classList.toggle("sel",b.dataset.v===view));
+  $("mk").innerHTML="";idxs().forEach(i=>{const b=document.createElement("button"),d=def(i);b.textContent=d[0];b.style.color=d[1];b.dataset.i=i;
+    b.onclick=()=>{cur=i;mkSel()};$("mk").appendChild(b)});mkSel();
+  $("hint").textContent=view==="body"?"Hals-Anker: Hier sitzt der Kopf auf dem Körper.":simple?"Das Bild folgt deinem Gesicht starr. Augen und Mund sitzen auf den Markern.":two?"Hals-Pivot: Drehpunkt des Kopfes, meist am unteren Ende des Halses im Kopf-PNG.":"Hals oben/unten: Darüber bewegt sich alles mit dem Kopf, dazwischen wird gedehnt, darunter bleibt alles stehen.";
+  drawEd()}
+function mkSel(){document.querySelectorAll("#mk button").forEach(b=>b.classList.toggle("sel",+b.dataset.i===cur))}
+document.querySelectorAll("[data-v]").forEach(b=>b.onclick=()=>setView(b.dataset.v));
+$("mode").onchange=()=>{const m=$("mode").value;simple=m==="0";two=m==="2";document.querySelectorAll(".two").forEach(e=>e.hidden=!two);document.querySelectorAll(".ns").forEach(e=>e.hidden=simple);$("up").textContent=two?"Eigenes Kopf-PNG":"Eigene Datei";setView("main")};
+
 // ---------- Editor ----------
 function drawEd(){
-  const w=ed.clientWidth||300,h=Math.round(w*(img.naturalHeight||1)/(img.naturalWidth||1));
-  ed.width=w;ed.height=h;ed.style.height=h+"px";ec.clearRect(0,0,w,h);ec.drawImage(img,0,0,w,h);
-  anch.forEach((a,i)=>{const x=a[0]*w,y=a[1]*h;ec.beginPath();ec.arc(x,y,13,0,7);ec.fillStyle=COL[i]+"99";ec.fill();ec.lineWidth=3;ec.strokeStyle=COL[i];ec.stroke();
-    ec.fillStyle="#000";ec.font="bold 12px sans-serif";ec.textAlign="center";ec.textBaseline="middle";ec.fillText(NAME[i],x,y)});
+  const im=I[view],pts=P[view],w=ed.clientWidth||300;
+  if(!im.naturalWidth){ed.width=w;ed.height=70;ed.style.height="70px";ec.fillStyle="#a39b8f";ec.font="13px sans-serif";ec.fillText("Noch kein Bild geladen.",10,38);return}
+  const h=Math.round(w*im.naturalHeight/im.naturalWidth);
+  ed.width=w;ed.height=h;ed.style.height=h+"px";ec.clearRect(0,0,w,h);ec.drawImage(im,0,0,w,h);
+  if(view==="main"&&!two&&!simple){ec.setLineDash([6,4]);ec.strokeStyle="#ffd166";ec.lineWidth=1.5;[3,4].forEach(i=>{const y=pts[i][1]*h;ec.beginPath();ec.moveTo(0,y);ec.lineTo(w,y);ec.stroke()});ec.setLineDash([])}
+  idxs().forEach(i=>{const d=def(i),x=pts[i][0]*w,y=pts[i][1]*h;ec.beginPath();ec.arc(x,y,13,0,7);ec.fillStyle=d[1]+"99";ec.fill();ec.lineWidth=3;ec.strokeStyle=d[1];ec.stroke();
+    ec.fillStyle="#000";ec.font="bold 12px sans-serif";ec.textAlign="center";ec.textBaseline="middle";ec.fillText(d[2],x,y)});
 }
-document.querySelectorAll("[data-h]").forEach(b=>b.onclick=()=>{cur=+b.dataset.h;document.querySelectorAll("[data-h]").forEach(o=>o.classList.toggle("sel",o===b))});
 let drag=-1;
-function pos(e){const r=ed.getBoundingClientRect();return[(e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height]}
-ed.onpointerdown=e=>{ed.setPointerCapture(e.pointerId);const p=pos(e),r=ed.getBoundingClientRect();
-  let best=-1,bd=24;anch.forEach((a,i)=>{const d=Math.hypot((a[0]-p[0])*r.width,(a[1]-p[1])*r.height);if(d<bd){bd=d;best=i}});
-  drag=best>=0?best:cur;anch[drag]=p;drawEd()};
-ed.onpointermove=e=>{if(drag>=0){anch[drag]=pos(e);drawEd()}};ed.onpointerup=()=>drag=-1;
+const pos=e=>{const r=ed.getBoundingClientRect();return[clamp((e.clientX-r.left)/r.width,0,1),clamp((e.clientY-r.top)/r.height,0,1)]};
+ed.onpointerdown=e=>{if(!I[view].naturalWidth)return;ed.setPointerCapture(e.pointerId);const p=pos(e),r=ed.getBoundingClientRect(),pts=P[view];
+  let best=-1,bd=24;idxs().forEach(i=>{const d=Math.hypot((pts[i][0]-p[0])*r.width,(pts[i][1]-p[1])*r.height);if(d<bd){bd=d;best=i}});
+  drag=best>=0?best:cur;if(best>=0){cur=best;mkSel()}pts[drag]=p;drawEd()};
+ed.onpointermove=e=>{if(drag>=0){P[view][drag]=pos(e);drawEd()}};ed.onpointerup=()=>drag=-1;
 addEventListener("resize",drawEd);
 
 // ---------- Kamera + Modell ----------
@@ -116,12 +165,13 @@ async function initModel(){
 async function startCam(id){
   if(v.srcObject)v.srcObject.getTracks().forEach(t=>t.stop());
   v.srcObject=await navigator.mediaDevices.getUserMedia({video:{deviceId:id?{exact:id}:undefined,width:1280,height:720}});
-  await v.play();out.width=frame.width=v.videoWidth;out.height=frame.height=v.videoHeight;
+  await v.play();out.width=frame.width=v.videoWidth;out.height=frame.height=v.videoHeight;neu=null;
   const ds=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="videoinput");
   if(ds.length>1){$("dev").hidden=false;$("dev").innerHTML=ds.map(d=>`<option value="${d.deviceId}">${d.label||"Kamera"}</option>`).join("")}
 }
-$("cam").onclick=async()=>{try{$("cam").disabled=true;if(!lm)await initModel();await startCam();st.textContent="Läuft.";$("cam").textContent="Neu starten";requestAnimationFrame(loop)}catch(e){st.textContent="Fehler: "+e.message}finally{$("cam").disabled=false}};
+$("cam").onclick=async()=>{try{$("cam").disabled=true;if(!lm)await initModel();await startCam();st.textContent="Läuft. Sitz gerade und klicke „Ruhelage setzen“.";$("cam").textContent="Neu starten";requestAnimationFrame(loop)}catch(e){st.textContent="Fehler: "+e.message}finally{$("cam").disabled=false}};
 $("dev").onchange=e=>startCam(e.target.value);
+$("neu").onclick=()=>wantN=true;
 $("only").onclick=()=>document.body.classList.add("only");
 addEventListener("keydown",e=>{if(e.key==="Escape")document.body.classList.remove("only")});
 out.ondblclick=()=>document.body.classList.toggle("only");
@@ -132,8 +182,6 @@ function hull(p){p=p.slice().sort((a,b)=>a[0]-b[0]||a[1]-b[1]);const cr=(o,a,b)=
   for(const q of p.slice().reverse()){while(up.length>1&&cr(up[up.length-2],up[up.length-1],q)<=0)up.pop();up.push(q)}
   return lo.slice(0,-1).concat(up.slice(0,-1))}
 const mean=a=>[a.reduce((s,p)=>s+p[0],0)/a.length,a.reduce((s,p)=>s+p[1],0)/a.length];
-
-// schneidet Region aus dem Kamerabild und liefert {canvas,w,h,cx,cy}
 function cut(pts,grow,feather){
   const hl=hull(pts),c=mean(hl),g=hl.map(p=>[c[0]+(p[0]-c[0])*grow,c[1]+(p[1]-c[1])*grow]);
   const m=feather*2+2;let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;g.forEach(p=>{x0=Math.min(x0,p[0]);y0=Math.min(y0,p[1]);x1=Math.max(x1,p[0]);y1=Math.max(y1,p[1])});
@@ -145,7 +193,7 @@ function cut(pts,grow,feather){
   sc.globalCompositeOperation="source-in";sc.drawImage(frame,x0,y0,w,h,0,0,w,h);sc.globalCompositeOperation="source-over";
   return{w,h,cx:c[0]-x0,cy:c[1]-y0};
 }
-function stamp(info,x,y,s){oc.drawImage(scr,0,0,info.w,info.h,x-info.cx*s,y-info.cy*s,info.w*s,info.h*s)}
+function stamp(i,x,y,s,r){oc.save();oc.translate(x,y);oc.rotate(r);oc.scale(s,s);oc.drawImage(scr,0,0,i.w,i.h,-i.cx,-i.cy,i.w,i.h);oc.restore()}
 
 // ---------- Hauptschleife ----------
 function loop(){
@@ -158,22 +206,47 @@ function loop(){
   if(!det){smooth=null;return}
   const raw=det.map(p=>[(mir?1-p.x:p.x)*W,p.y*H]);
   smooth=smooth?raw.map((p,i)=>[smooth[i][0]+(p[0]-smooth[i][0])*.6,smooth[i][1]+(p[1]-smooth[i][1])*.6]):raw;
-  const P=i=>smooth[i],brow=$("brow").checked;
-  const A=EA.concat(brow?BA:[]).map(P),B=EB.concat(brow?BB:[]).map(P);
-  let eyes=[mean(EA.map(P)),mean(EB.map(P))].sort((a,b)=>a[0]-b[0]);
-  const gA=[A,B].sort((a,b)=>mean(a)[0]-mean(b)[0]);
+  const Q=i=>smooth[i],brow=$("brow").checked;
+  const gA=[EA.concat(brow?BA:[]).map(Q),EB.concat(brow?BB:[]).map(Q)].sort((a,b)=>mean(a)[0]-mean(b)[0]);
+  const eyes=[mean(EA.map(Q)),mean(EB.map(Q))].sort((a,b)=>a[0]-b[0]);
   const mid=mean(eyes),roll=Math.atan2(eyes[1][1]-eyes[0][1],eyes[1][0]-eyes[0][0]),d=Math.hypot(eyes[1][0]-eyes[0][0],eyes[1][1]-eyes[0][1]);
-  // Bild
-  const iw=img.naturalWidth,ih=img.naturalHeight;if(!iw)return;
-  const k=$("sP").value*(d/(H*.16))*(H*.6/ih),pv=[(anch[0][0]+anch[1][0])/2,(anch[0][1]+anch[1][1])/2];
-  oc.save();oc.translate(mid[0],mid[1]);oc.rotate(roll);oc.scale(k,k);oc.translate(-pv[0]*iw,-pv[1]*ih);oc.drawImage(img,0,0);oc.restore();
-  const cs=Math.cos(roll),sn=Math.sin(roll);
-  const scrPos=a=>{const lx=(a[0]-pv[0])*iw*k,ly=(a[1]-pv[1])*ih*k;return[mid[0]+lx*cs-ly*sn,mid[1]+lx*sn+ly*cs]};
-  const grow=+$("sX").value,f=+$("sF").value,es=+$("sE").value,ms=+$("sM").value;
-  [0,1].forEach(i=>{const info=cut(gA[i],grow,f),p=scrPos(anch[i]);stamp(info,p[0],p[1],es)});
-  const mi=cut(LIPS.map(P),grow+.1,f),mp=scrPos(anch[2]);stamp(mi,mp[0],mp[1],ms);
+  if(!neu||wantN){neu={x:mid[0],y:mid[1],r:roll,d};wantN=false}
+  // Kopf-Transformation relativ zur Ruhelage
+  const f=+$("sFo").value,th={dx:(mid[0]-neu.x)*f,dy:(mid[1]-neu.y)*f,rot:clamp((roll-neu.r)*f,-.7,.7),sc:clamp(1+(d/neu.d-1)*f,.6,1.6)};
+  const a=P.main,im=I.main,iw=im.naturalWidth,ih=im.naturalHeight;if(!iw)return;
+  if(simple){ // Einfach-Modus: Bild klebt starr am Gesicht
+    const k=+$("sP").value*(d/(H*.16))*(H*.6/ih),pv=[(a[0][0]+a[1][0])/2,(a[0][1]+a[1][1])/2],cs=Math.cos(roll),sn=Math.sin(roll);
+    oc.save();oc.translate(mid[0],mid[1]);oc.rotate(roll);oc.scale(k,k);oc.translate(-pv[0]*iw,-pv[1]*ih);oc.drawImage(im,0,0);oc.restore();
+    const sp=q=>{const lx=(q[0]-pv[0])*iw*k,ly=(q[1]-pv[1])*ih*k;return[mid[0]+lx*cs-ly*sn,mid[1]+lx*sn+ly*cs]};
+    const gr=+$("sX").value,fe2=+$("sF").value;
+    [0,1].forEach(i=>{const p=sp(a[i]);stamp(cut(gA[i],gr,fe2),p[0],p[1],+$("sE").value,0)});
+    const q=sp(a[2]);stamp(cut(LIPS.map(Q),gr+.1,fe2),q[0],q[1],+$("sM").value,0);
+    return}
+  const ps=+$("sP").value,hr=+$("sHR").value;let s0,x0,y0,body=null;
+  if(two){
+    const b=I.body;let Nx=W/2,Ny=H*.7,sB=ps*H*.5/ih;
+    if(b.naturalWidth){sB=ps*H*.5/b.naturalHeight;const bx=(W-b.naturalWidth*sB)/2,by=H-b.naturalHeight*sB;
+      Nx=bx+P.body[0][0]*b.naturalWidth*sB;Ny=by+P.body[0][1]*b.naturalHeight*sB;body={b,sB,bx,by}}
+    s0=sB*hr;x0=Nx-a[4][0]*iw*s0;y0=Ny-a[4][1]*ih*s0;
+  }else{s0=ps*H*.85/ih;x0=(W-iw*s0)/2;y0=H-ih*s0}
+  // Bild in Streifen zeichnen: w=1 Kopf, w=0 Körper, dazwischen Hals
+  const yb=a[4][1]*ih,yt=Math.min(a[3][1]*ih,yb),px=a[4][0]*iw;
+  const sl=(u,vv,w)=>{if(vv<=u)return;oc.save();oc.translate(x0+px*s0+th.dx*w,y0+yb*s0+th.dy*w);oc.rotate(th.rot*w);const k=1+(th.sc-1)*w;oc.scale(k,k);
+    oc.translate(-px*s0,-yb*s0);oc.drawImage(im,0,u,iw,vv-u,0,u*s0,iw*s0,(vv-u)*s0+.5);oc.restore()};
+  const drawBody=()=>{if(body)oc.drawImage(body.b,body.bx,body.by,body.b.naturalWidth*body.sB,body.b.naturalHeight*body.sB)};
+  const behind=two&&$("bh").checked;
+  if(two&&!behind)drawBody();
+  if(two)sl(0,ih,1);
+  else{const N=12;sl(0,yt,1);for(let i=0;i<N;i++)sl(yt+(yb-yt)*i/N,Math.min(ih,yt+(yb-yt)*(i+1)/N+1),1-(i+.5)/N);sl(yb,ih,0)}
+  // Augen & Mund: Anker durch die Kopf-Transformation schicken
+  const hp=(u,w)=>{const cx=x0+px*s0,cy=y0+yb*s0,vx=x0+u*iw*s0-cx,vy=y0+w*ih*s0-cy,c=Math.cos(th.rot),s=Math.sin(th.rot);
+    return[cx+th.dx+(vx*c-vy*s)*th.sc,cy+th.dy+(vx*s+vy*c)*th.sc]};
+  const grow=+$("sX").value,fe=+$("sF").value,rel=th.sc/(d/neu.d),rr=th.rot-roll;
+  [0,1].forEach(i=>{const p=hp(a[i][0],a[i][1]);stamp(cut(gA[i],grow,fe),p[0],p[1],+$("sE").value*rel,rr)});
+  const mp=hp(a[2][0],a[2][1]);stamp(cut(LIPS.map(Q),grow+.1,fe),mp[0],mp[1],+$("sM").value*rel,rr);
+  if(behind)drawBody();
 }
-setImg(peanut(),false);anch=[[.38,.29],[.62,.29],[.5,.68]];
+loadDemo();setView("main");
 </script>
 </body>
 </html>
