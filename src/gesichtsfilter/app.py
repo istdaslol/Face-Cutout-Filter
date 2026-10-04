@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QApplication, QCheckBox, QMessageBox
 
 from .core.settings import RigAssets, Settings
 from .engine import Engine
-from .io.vcam import OBS_HINWEIS, obs_virtualcam_installed
+from .io.vcam import any_backend_installed, missing_hint
 from .sysutil import APP_NAME, app_data_dir, set_low_priority
 from .ui.main_window import MainWindow
 
@@ -22,6 +22,13 @@ QPushButton:disabled { color: #7d766b; background: #2f2c28; }
 QPushButton#primary { background: #ffb347; color: #1a1a1a; font-weight: bold; border: none; }
 QPushButton#primary:disabled { background: #6b5a3a; color: #2a2a2a; }
 QComboBox, QSpinBox { padding: 5px; border: 1px solid #4a453f; border-radius: 6px; background: #2a2723; }
+QComboBox QAbstractItemView { background: #2a2723; color: #f4efe6; border: 1px solid #4a453f; outline: 0;
+    selection-background-color: #ffb347; selection-color: #1a1a1a; }
+QComboBox QAbstractItemView::item { padding: 5px 8px; min-height: 22px; color: #f4efe6; background: #2a2723; }
+QComboBox QAbstractItemView::item:hover, QComboBox QAbstractItemView::item:selected {
+    background: #ffb347; color: #1a1a1a; }
+QLineEdit { padding: 5px; border: 1px solid #4a453f; border-radius: 6px; background: #2a2723; }
+QLineEdit:disabled { color: #7d766b; background: #2f2c28; }
 QSlider::groove:horizontal { height: 4px; background: #4a453f; border-radius: 2px; }
 QSlider::handle:horizontal { background: #ffb347; width: 14px; margin: -6px 0; border-radius: 7px; }
 QToolTip { color: #f4efe6; background: #2a2723; border: 1px solid #4a453f; }
@@ -65,20 +72,20 @@ def install_excepthooks(log_path):
     threading.excepthook = lambda a: show(a.exc_type, a.exc_value, a.exc_traceback)
 
 
-def _check_obs(parent):
-    """Einmaliger Hinweis, wenn die OBS Virtual Camera fehlt (Vorschau geht trotzdem)."""
-    if obs_virtualcam_installed() is not False:
+def _check_vcam(parent):
+    """Einmaliger Hinweis, wenn keine virtuelle Kamera gefunden wird (Vorschau geht trotzdem)."""
+    if any_backend_installed() is not False:
         return
     cfg = QSettings(APP_NAME, APP_NAME)
-    if cfg.value("obs_hinweis_aus", False, type=bool):
+    if cfg.value("vcam_hinweis_aus", False, type=bool):
         return
-    box = QMessageBox(QMessageBox.Icon.Information, "OBS Virtual Camera fehlt", OBS_HINWEIS,
+    box = QMessageBox(QMessageBox.Icon.Information, "Keine virtuelle Kamera gefunden", missing_hint(),
                       QMessageBox.StandardButton.Ok, parent)
     chk = QCheckBox("Diesen Hinweis nicht mehr anzeigen")
     box.setCheckBox(chk)
     box.exec()
     if chk.isChecked():
-        cfg.setValue("obs_hinweis_aus", True)
+        cfg.setValue("vcam_hinweis_aus", True)
 
 
 def main() -> int:
@@ -95,7 +102,7 @@ def main() -> int:
     set_low_priority(win.chk_prio.isChecked())
     engine.start()
     win.show()
-    QTimer.singleShot(400, lambda: _check_obs(win))
+    QTimer.singleShot(400, lambda: _check_vcam(win))
     code = app.exec()
     engine.shutdown()
     return code

@@ -345,3 +345,100 @@ def test_altes_profil_mit_margin_wird_umgerechnet():
     # neue Schluessel haben Vorrang vor dem alten
     s2 = Settings.from_dict({"margin": 1.3, "eye_margin": 1.0, "mouth_margin": 0.9})
     assert (s2.eye_margin, s2.mouth_margin) == (1.0, 0.9)
+
+
+# ---------------------------------------------------------------- Kopfverfolgung aus (Modus 0)
+def _red(o):
+    return (o[..., 2] > 200) & (o[..., 1] < 50) & (o[..., 0] < 50)
+
+
+def _mode0(track, face, rest_face=None, **kw):
+    s = Settings(mode=0, background="#000000", mirror=False, track_head=track, **kw)
+    r = Rig()
+    r.set_rest_pose()
+    r.render(cam(), rest_face if rest_face is not None else face, s, synth_assets())   # Ruhelage
+    return r.render(cam(), face, s, synth_assets())
+
+
+def test_modus0_ohne_kopfverfolgung_bleibt_das_png_stehen():
+    rest = make_face(0.5, 0.4)
+    for moved in (make_face(0.62, 0.5), make_face(0.5, 0.4, roll=0.35), make_face(0.5, 0.4, scale=1.4),
+                  make_face(0.4, 0.35, roll=-0.2, scale=0.8)):
+        a = _mode0(False, rest)
+        b = _mode0(False, moved, rest_face=rest)
+        # PNG-Umriss (ohne die Augen-/Mund-Ausschnitte) ist identisch: Zeilen oberhalb der Augen
+        # und unterhalb des Mundes. Aus der Mitte kommen die eingeblendeten Ausschnitte.
+        red_a, red_b = _red(a), _red(b)
+        ys = np.where(red_a.any(axis=1))[0]
+        top = slice(ys[0], ys[0] + (ys[-1] - ys[0]) // 5)
+        bottom = slice(ys[0] + (ys[-1] - ys[0]) * 4 // 5, ys[-1] + 1)
+        assert np.array_equal(red_a[top], red_b[top]), "oberer PNG-Rand hat sich bewegt"
+        assert np.array_equal(red_a[bottom], red_b[bottom]), "unterer PNG-Rand hat sich bewegt"
+        assert ys[0] == np.where(red_b.any(axis=1))[0][0]
+
+
+def test_modus0_mit_kopfverfolgung_bewegt_das_png_weiter():
+    rest = make_face(0.5, 0.4)
+    a, b = _mode0(True, rest), _mode0(True, make_face(0.62, 0.5), rest_face=rest)
+    xa, xb = np.where(_red(a))[1].mean(), np.where(_red(b))[1].mean()
+    assert abs((xb - xa) - 0.12 * W) < 10
+
+
+def test_modus0_ohne_kopfverfolgung_augen_bleiben_auf_den_markern_und_aufrecht():
+    rest = make_face(0.5, 0.4)
+    assets = synth_assets()
+    # erwartete Marker-Position aus der Ruhelage
+    eyes = sorted([make_face(0.5, 0.4)[C.EYE_A].mean(0) * [W, H], make_face(0.5, 0.4)[C.EYE_B].mean(0) * [W, H]],
+                  key=lambda e: e[0])
+    d0 = float(np.hypot(*(eyes[1] - eyes[0])))
+    mid0 = (eyes[0] + eyes[1]) / 2
+    k = (d0 / (H * .16)) * (H * .6 / assets.head.h)
+    a = assets.head_markers
+    pv = ((a[0][0] + a[1][0]) / 2, (a[0][1] + a[1][1]) / 2)
+    for moved in (rest, make_face(0.62, 0.5, roll=0.3, scale=1.3)):
+        out = _mode0(False, moved, rest_face=rest)
+        for m in (0, 1):
+            x = mid0[0] + (a[m][0] - pv[0]) * assets.head.w * k
+            y = mid0[1] + (a[m][1] - pv[1]) * assets.head.h * k
+            assert is_green(out[int(round(y)), int(round(x))]), f"Marker {m} bei {moved[0]}"
+
+
+def test_modus0_ohne_kopfverfolgung_ausschnitt_groesse_bleibt_konstant():
+    rest = make_face(0.5, 0.4)
+    near = make_face(0.5, 0.4, scale=1.3)
+
+    def green_area(o):
+        return int(((o[..., 1] > 200) & (o[..., 0] < 60) & (o[..., 2] < 60)).sum())
+
+    # feather=0: sonst verfaelscht die feste Kantenbreite (in Kamerapixeln) die Flaeche der winzigen Test-Augen
+    a = green_area(_mode0(False, rest, feather=0))
+    b = green_area(_mode0(False, near, rest_face=rest, feather=0))
+    assert 0.9 < b / a < 1.1, f"Ausschnittsgroesse aendert sich mit dem Abstand: {a} -> {b}"
+    # Gegenprobe: mit Kopfverfolgung waechst der Ausschnitt 1:1 mit (Bild skaliert mit)
+    c = green_area(_mode0(True, near, rest_face=rest, feather=0))
+    assert c / green_area(_mode0(True, rest, feather=0)) > 1.4
+
+
+def test_modus0_ohne_kopfverfolgung_ruhelage_neu_setzen_verschiebt_das_png():
+    s = Settings(mode=0, background="#000000", mirror=False, track_head=False)
+    r = Rig()
+    r.set_rest_pose()
+    r.render(cam(), make_face(0.5, 0.4), s, synth_assets())
+    a = r.render(cam(), make_face(0.7, 0.4), s, synth_assets())
+    r.set_rest_pose()                                           # Knopf "Ruhelage setzen"
+    b = r.render(cam(), make_face(0.7, 0.4), s, synth_assets())
+    xa, xb = np.where(_red(a))[1].mean(), np.where(_red(b))[1].mean()
+    assert abs((xb - xa) - 0.2 * W) < 10
+
+
+def test_track_head_wird_in_modus_1_und_2_ignoriert():
+    for mode in (1, 2):
+        face = make_face(0.58, 0.45, roll=0.2)
+        outs = []
+        for track in (True, False):
+            r = Rig()
+            r.set_rest_pose()
+            s = Settings(mode=mode, mirror=False, track_head=track, background="#000000")
+            r.render(cam(), make_face(), s, synth_assets())
+            outs.append(r.render(cam(), face, s, synth_assets()))
+        assert np.array_equal(*outs)

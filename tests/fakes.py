@@ -69,12 +69,14 @@ class FakeVcam:
 
     def __init__(self):
         self.frames, self._on, self.device = [], False, "Fake Virtual Camera"
+        self.started_with = None
 
     @property
     def active(self):
         return self._on
 
-    def start(self, w, h, fps):
+    def start(self, w, h, fps, backend=None, device=None):
+        self.started_with = (backend, device)
         if FakeVcam.fail:
             raise VirtualCamError("Test: OBS fehlt")
         self._on, self.size = True, (w, h)

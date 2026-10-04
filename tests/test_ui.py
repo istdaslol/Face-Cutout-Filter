@@ -238,3 +238,146 @@ def test_vorschau_flag_folgt_checkbox(env):
     assert e.preview_enabled is False
     w.chk_prev.setChecked(True)
     assert e.preview_enabled is True
+
+
+# ---------------------------------------------------------------- Foto
+def test_foto_knoepfe_nur_mit_kamera_und_ohne_countdown_anzeige(env, tmp_path, monkeypatch):
+    w, e, boxes = env()
+    assert w.btn_photo_t.text() == "Foto in 3 s"              # Standard-Verzoegerung laut config
+    monkeypatch.setattr(C, "PHOTO_DELAY_S", 0.5)             # danach: Test soll nicht 3 s warten
+    e.start()
+    w._set_photo_dir(tmp_path / "fotos")
+    assert not w.btn_photo.isEnabled() and not w.btn_photo_t.isEnabled()
+    w.toggle_camera()
+    assert wait_for(lambda: w._cam_running)
+    assert w.btn_photo.isEnabled() and w.btn_photo_t.isEnabled()
+    # Sofort-Foto
+    w.btn_photo.click()
+    assert wait_for(lambda: "Foto gespeichert" in w.lbl_status.text())
+    assert len(list((tmp_path / "fotos").glob("Foto_*.png"))) == 1
+    # Foto mit Verzoegerung: keine Anzeige, bis es gespeichert ist
+    vorher = w.lbl_status.text()
+    w.btn_photo_t.click()
+    pump(250)
+    assert w.lbl_status.text() == vorher and len(list((tmp_path / "fotos").glob("*.png"))) == 1
+    assert wait_for(lambda: len(list((tmp_path / "fotos").glob("*.png"))) == 2, 5000)
+    # Kamera aus -> Knoepfe aus
+    w.toggle_camera()
+    assert wait_for(lambda: not w._cam_running)
+    assert not w.btn_photo.isEnabled() and not w.btn_photo_t.isEnabled()
+    assert not boxes
+
+
+# ---------------------------------------------------------------- Kopfverfolgung
+def test_kopfverfolgung_checkbox_nur_im_einfach_modus_und_ruhelage_knopf(env):
+    w, e, _ = env()
+    # Modus 1: keine Checkbox, Ruhelage sichtbar
+    assert not w.chk_track.isVisibleTo(w) and w.btn_rest.isVisibleTo(w)
+    w.cmb_mode.setCurrentIndex(0)
+    assert w.chk_track.isVisibleTo(w) and w.chk_track.isChecked()
+    assert not w.btn_rest.isVisibleTo(w) and not w.s_follow.isVisibleTo(w)     # folgt dem Kopf -> keine Ruhelage noetig
+    w.chk_track.setChecked(False)
+    assert w.settings.track_head is False
+    assert w.btn_rest.isVisibleTo(w) and "bleibt dort stehen" in w.lbl_rest.text()
+    assert not w.s_follow.isVisibleTo(w)
+    w.cmb_mode.setCurrentIndex(2)
+    assert not w.chk_track.isVisibleTo(w) and w.btn_rest.isVisibleTo(w)
+    assert "bleibt dort stehen" not in w.lbl_rest.text()
+    w.cmb_mode.setCurrentIndex(0)
+    assert w.btn_rest.isVisibleTo(w)                                            # track_head ist weiter aus
+    w.chk_track.setChecked(True)
+    assert not w.btn_rest.isVisibleTo(w)
+
+
+def test_kopfverfolgung_wird_im_profil_gespeichert_und_geladen(env, tmp_path):
+    w, e, _ = env()
+    w.cmb_mode.setCurrentIndex(0)
+    w.chk_track.setChecked(False)
+    prof = tmp_path / "t.json"
+    w._write_profile(prof)
+    w2, _, _ = env()
+    w2.apply_profile(P.load_profile(prof))
+    assert w2.settings.track_head is False and not w2.chk_track.isChecked()
+    assert w2.btn_rest.isVisibleTo(w2) and w2.settings.mode == 0
+
+
+# ---------------------------------------------------------------- Virtuelle Kamera: Backend
+def test_backend_auswahl_geht_an_engine_und_ins_profil(env, tmp_path, monkeypatch):
+    monkeypatch.setattr(mw, "backend_options",
+                        lambda: [("obs", "OBS Virtual Camera"), ("unitycapture", "Unity Capture")])
+    w, e, boxes = env()
+    items = [(w.cmb_vbackend.itemText(i), w.cmb_vbackend.itemData(i)) for i in range(w.cmb_vbackend.count())]
+    assert items == [("Automatisch (erstes verf\u00fcgbares)", None), ("OBS Virtual Camera", "obs"),
+                     ("Unity Capture", "unitycapture")]
+    assert e.vcam_backend is None and e.vcam_device is None
+    w.cmb_vbackend.setCurrentIndex(2)
+    w.edit_vdevice.setText("  Gesichtsfilter Kamera ")
+    assert (e.vcam_backend, e.vcam_device) == ("unitycapture", "Gesichtsfilter Kamera")
+    # Start mit Attrappe: Optionen kommen an, Auswahl ist waehrenddessen gesperrt
+    e.start()
+    w.toggle_camera()
+    assert wait_for(lambda: w._cam_running)
+    w.btn_vcam.click()
+    assert wait_for(lambda: "<b>an</b>" in w.lbl_vcam.text())
+    assert e.vcam.started_with == ("unitycapture", "Gesichtsfilter Kamera")
+    assert not w.cmb_vbackend.isEnabled() and not w.edit_vdevice.isEnabled()
+    w.btn_vcam.click()
+    assert wait_for(lambda: "<b>an</b>" not in w.lbl_vcam.text())
+    assert w.cmb_vbackend.isEnabled() and w.edit_vdevice.isEnabled()
+    # Profil
+    prof = tmp_path / "b.json"
+    w._write_profile(prof)
+    raw = P.load_profile(prof)["performance"]
+    assert raw["vcam_backend"] == "unitycapture" and raw["vcam_device"].strip() == "Gesichtsfilter Kamera"
+    w2, e2, _ = env()
+    w2.apply_profile(P.load_profile(prof))
+    assert w2.cmb_vbackend.currentData() == "unitycapture" and e2.vcam_backend == "unitycapture"
+    assert e2.vcam_device == "Gesichtsfilter Kamera" and w2.edit_vdevice.text().strip() == "Gesichtsfilter Kamera"
+
+
+def test_profil_mit_unbekanntem_backend_faellt_auf_automatisch(env, tmp_path):
+    w, e, _ = env()                                   # (Linux-Test-System kennt "obs" nicht -> Fall ist real)
+    prof = tmp_path / "x.json"
+    P.save_profile(prof, Settings(), {"vcam_backend": "gibt_es_nicht", "vcam_device": 5}, {"kind": "demo"},
+                   [[.4, .27], [.6, .27], [.5, .4], [.5, .475], [.5, .59]], None, [[.5, .1]])
+    w.apply_profile(P.load_profile(prof))
+    assert w.cmb_vbackend.currentData() is None and e.vcam_backend is None
+    assert w.edit_vdevice.text() == ""                # kein str -> ignoriert
+
+
+# ---------------------------------------------------------------- Dropdown lesbar
+def test_dropdown_eintrag_unter_der_maus_ist_lesbar(qapp, env):
+    """Rendert das Popup wirklich und prueft Farben: Hover = orange mit dunkler Schrift,
+    sonst helle Schrift auf dunklem Grund. (Vorher: dunkle Schrift auf dunklem Grund.)"""
+    from gesichtsfilter.app import apply_theme
+    apply_theme(qapp)
+    try:
+        w, e, _ = env()
+        c = w.cmb_bg
+        c.showPopup()
+        pump(150)
+        v = c.view()
+        r = v.visualRect(v.model().index(1, 0))
+        pos = QPointF(r.center())
+        QApplication.sendEvent(v.viewport(), QMouseEvent(
+            QEvent.Type.MouseMove, pos, v.viewport().mapToGlobal(pos.toPoint()),
+            Qt.MouseButton.NoButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier))
+        pump(150)
+        img = v.window().grab().toImage()
+        off = v.viewport().mapTo(v.window(), v.viewport().rect().topLeft())
+
+        def row_pixels(i):
+            rr = v.visualRect(v.model().index(i, 0))
+            return [img.pixelColor(off.x() + x, off.y() + y) for y in range(rr.top() + 2, rr.bottom() - 2)
+                    for x in range(rr.left() + 4, rr.right() - 4)]
+
+        def lum(col):
+            return 0.299 * col.red() + 0.587 * col.green() + 0.114 * col.blue()
+
+        hover, other = row_pixels(1), row_pixels(2)
+        assert hover[0].name() == "#ffb347" and other[0].name() == "#2a2723"
+        assert min(lum(p) for p in hover) < 80, "Schrift im Hover-Eintrag nicht dunkel"
+        assert max(lum(p) for p in other) > 180, "Schrift in normalem Eintrag nicht hell"
+        c.hidePopup()
+    finally:
+        qapp.setStyleSheet("")

@@ -33,6 +33,7 @@ DEFAULT_FEATHER = 8         # "Weiche Kante"              0 .. 20 (Pixel)
 DEFAULT_BROWS = True        # "Augenbrauen mitnehmen"
 DEFAULT_MIRROR = True       # "Spiegeln"
 DEFAULT_BEHIND = False      # "Kopf hinter Koerper"
+DEFAULT_TRACK_HEAD = True   # "PNG folgt dem Kopf" (nur Modus "Einfach"); aus = PNG bleibt stehen
 DEFAULT_BACKGROUND = "cam"  # "cam" oder Hex-Farbe
 
 # Hintergrund-Auswahl: (Anzeigename, Wert)
@@ -63,6 +64,13 @@ TRACK_SIZE = (640, 360)     # Tracking laeuft auf diesem verkleinerten Bild
 DEFAULT_FPS = 30            # fps-Limit der Ausgabe
 DEFAULT_TRACK_EVERY = 1     # 1 = jeden Frame, 2 = jeden 2. Frame (mit Vorhersage)
 SMOOTHING = 0.6             # Glaettung der Landmarks (wie 0.6 in der HTML-Datei)
+
+# ======================================================================
+# FOTO
+# ======================================================================
+PHOTO_DELAY_S = 3           # Verzoegerung des Knopfs "Foto in 3 s" (nur im Hintergrund, ohne Anzeige)
+PHOTO_PREFIX = "Foto"       # Dateiname: Foto_JJJJMMTT_HHMMSS.png
+PHOTO_SUBDIR = "Gesichtsfilter"   # Unterordner im Bilder-Ordner des Benutzers
 
 # ======================================================================
 # LANDMARK-INDIZES (MediaPipe FaceMesh, 478 Punkte)

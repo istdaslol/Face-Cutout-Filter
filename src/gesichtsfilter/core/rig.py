@@ -104,25 +104,39 @@ class Rig:
 
     # ------------------------------------------------------------------
     def _simple(self, out, frame, s, head, a, groups, lips, mid, roll, d, W, H):
-        """Modus 0: Bild klebt starr am Gesicht."""
+        """Modus 0: Bild klebt starr am Gesicht.
+
+        Mit s.track_head == False bleibt das PNG an der Stelle der Ruhelage stehen
+        (Position, Groesse; keine Drehung). Augen und Mund kommen weiterhin live aus
+        der Kamera: Sie werden aufrecht gedreht und auf die Groesse der Ruhelage
+        normiert, damit sie zum feststehenden PNG passen.
+        """
         iw, ih = head.w, head.h
-        k = s.image_scale * (d / (H * .16)) * (H * .6 / ih)
+        if s.track_head:
+            pos, ang, dist = mid, roll, d
+            patch_rot, patch_rel = 0.0, 1.0
+        else:
+            neu = self.rest
+            pos, ang, dist = (neu.x, neu.y), 0.0, neu.d
+            patch_rot, patch_rel = -roll, neu.d / d
+        k = s.image_scale * (dist / (H * .16)) * (H * .6 / ih)
         pv = ((a[0][0] + a[1][0]) / 2, (a[0][1] + a[1][1]) / 2)
-        cs, sn = math.cos(roll), math.sin(roll)
-        m = (mat_translate(mid[0], mid[1]) @ mat_rotate(roll) @ mat_scale(k)
+        cs, sn = math.cos(ang), math.sin(ang)
+        m = (mat_translate(pos[0], pos[1]) @ mat_rotate(ang) @ mat_scale(k)
              @ mat_translate(-pv[0] * iw, -pv[1] * ih))
         draw_affine(out, head.pm, m)
 
         def sp(q):  # Marker -> Ausgabepixel
             lx, ly = (q[0] - pv[0]) * iw * k, (q[1] - pv[1]) * ih * k
-            return mid[0] + lx * cs - ly * sn, mid[1] + lx * sn + ly * cs
+            return pos[0] + lx * cs - ly * sn, pos[1] + lx * sn + ly * cs
 
         for i in (0, 1):
             p = sp(a[i])
-            stamp(out, cut(frame, groups[i], s.eye_margin, s.feather), p[0], p[1], s.eye_scale, 0.0)
+            stamp(out, cut(frame, groups[i], s.eye_margin, s.feather), p[0], p[1],
+                  s.eye_scale * patch_rel, patch_rot)
         q = sp(a[2])
-        stamp(out, cut(frame, lips, s.mouth_margin, s.feather),
-              q[0], q[1], s.mouth_scale, 0.0)
+        stamp(out, cut(frame, lips, s.mouth_margin, s.feather), q[0], q[1],
+              s.mouth_scale * patch_rel, patch_rot)
 
     # ------------------------------------------------------------------
     def _rig(self, out, frame, s, assets, a, groups, lips, mid, roll, d, W, H):

@@ -8,8 +8,11 @@ Zuweisungen sind in Python atomar; ein Frame mit halb geaendertem Wert ist harml
 """
 import logging
 import queue
+import threading
 import time
-from typing import Callable, Optional
+from datetime import datetime
+from pathlib import Path
+from typing import Callable, List, Optional
 
 import cv2
 import numpy as np
@@ -41,6 +44,7 @@ class Engine(QThread):
     cameraStarted = Signal(int, int)     # Breite, Hoehe
     cameraStopped = Signal()
     vcamChanged = Signal(bool, str)      # aktiv, Geraetename
+    photoSaved = Signal(str)             # Pfad des gespeicherten Fotos
 
     def __init__(self, settings: Settings, assets: RigAssets,
                  tracker_factory: Callable = _default_tracker_factory,
@@ -53,7 +57,12 @@ class Engine(QThread):
         self.vcam = vcam_factory()
         self.fps_limit = C.DEFAULT_FPS
         self.use_gpu = False
+        self.vcam_backend: Optional[str] = None   # None = automatisch (siehe io/vcam.py)
+        self.vcam_device: Optional[str] = None    # z.B. Unity-Capture-Name oder /dev/video10
         self.preview_enabled = True
+        self.photo_dir = Path.home() / "Pictures" / C.PHOTO_SUBDIR   # von der UI ueberschrieben
+        self._photos: List[float] = []        # Faelligkeitszeitpunkte ausstehender Fotos (monotonic)
+        self._photo_names = set()             # in dieser Sitzung vergebene Dateinamen
         self._q: "queue.Queue[tuple]" = queue.Queue()
         self._stop = False
         self._grabber = None
@@ -70,6 +79,13 @@ class Engine(QThread):
     def set_vcam(self, on: bool): self._q.put(("vcam", on))
     def request_rest_pose(self): self._q.put(("rest", None))
     def set_gpu(self, on: bool): self._q.put(("gpu", on))
+
+    def take_photo(self, delay_s: float = 0.0):
+        """Speichert nach delay_s Sekunden das aktuelle Ausgabebild als PNG in photo_dir.
+
+        Der Countdown laeuft nur hier im Hintergrund; es gibt bewusst keine Anzeige.
+        """
+        self._q.put(("photo", max(0.0, float(delay_s))))
 
     def shutdown(self):
         self._stop = True
@@ -107,6 +123,8 @@ class Engine(QThread):
                     self.vcam.stop()
                     self.vcamChanged.emit(False, "")
                     self._fail("Virtuelle Kamera", f"Senden fehlgeschlagen und gestoppt:\n{e}")
+            if self._photos:
+                self._photos_due(out)
             now = time.perf_counter()
             if self.preview_enabled and now - prev_t >= 1.0 / PREVIEW_FPS:
                 prev_t = now
@@ -136,6 +154,8 @@ class Engine(QThread):
                 elif cmd == "vcam": self._vcam(arg)
                 elif cmd == "rest" and self._pipeline: self._pipeline.rig.set_rest_pose()
                 elif cmd == "gpu": self._set_gpu(arg)
+                elif cmd == "photo" and self._grabber is not None:
+                    self._photos.append(time.monotonic() + arg)
             except Exception as e:
                 log.exception("Befehl %s fehlgeschlagen", cmd)
                 self._fail("Fehler", str(e))
@@ -169,6 +189,7 @@ class Engine(QThread):
                          + (f" {note}" if note else ""))
 
     def _close_camera(self):
+        self._photos.clear()
         if self.vcam.active:
             self.vcam.stop()
             self.vcamChanged.emit(False, "")
@@ -177,6 +198,40 @@ class Engine(QThread):
             self._grabber = None
             self.cameraStopped.emit()
             self.status.emit("Kamera gestoppt.")
+
+    def _photos_due(self, out):
+        """Speichert alle faelligen Fotos mit dem aktuellen Ausgabebild."""
+        now = time.monotonic()
+        due = [t for t in self._photos if t <= now]
+        if not due:
+            return
+        self._photos = [t for t in self._photos if t > now]
+        for _ in due:
+            path = self._photo_path()
+            # Schreiben in eigenem Thread: PNG-Kodierung soll keinen Frame der Ausgabe verzoegern
+            threading.Thread(target=self._write_photo, args=(path, out.copy()),
+                             name="Foto-Speichern", daemon=True).start()
+
+    def _photo_path(self) -> Path:
+        base = f"{C.PHOTO_PREFIX}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        path, n = self.photo_dir / f"{base}.png", 2
+        while path.exists() or path in self._photo_names:
+            path, n = self.photo_dir / f"{base}_{n}.png", n + 1
+        self._photo_names.add(path)
+        return path
+
+    def _write_photo(self, path: Path, frame):
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            ok, buf = cv2.imencode(".png", frame)
+            if not ok:
+                raise ValueError("PNG konnte nicht erzeugt werden.")
+            buf.tofile(str(path))      # tofile statt imwrite: funktioniert auch mit Umlauten im Pfad
+        except Exception as e:
+            log.exception("Foto speichern")
+            self.errorOccurred.emit("Foto", f"Das Foto konnte nicht gespeichert werden:\n{path}\n\n{e}")
+            return
+        self.photoSaved.emit(str(path))
 
     def _ensure_tracker(self):
         if self._tracker is not None and self._tracker_gpu == self.use_gpu:
@@ -210,7 +265,8 @@ class Engine(QThread):
             self._fail("Virtuelle Kamera", "Bitte zuerst die Kamera starten.")
             return
         try:
-            self.vcam.start(self._grabber.width, self._grabber.height, self.fps_limit)
+            self.vcam.start(self._grabber.width, self._grabber.height, self.fps_limit,
+                            self.vcam_backend, self.vcam_device)
         except VirtualCamError as e:
             self.vcamChanged.emit(False, "")
             self._fail("Virtuelle Kamera", str(e))

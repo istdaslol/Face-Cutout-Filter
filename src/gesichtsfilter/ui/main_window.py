@@ -5,15 +5,16 @@ Aufbau wie im HTML-Tool: links die Bedienung (1. Modus, 2. Bilder, 3. Marker,
 Settings/Assets sind gemeinsame Objekte mit der Engine: Aenderungen wirken sofort.
 """
 import logging
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import cv2
 import numpy as np
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QStandardPaths, Qt
 from PySide6.QtGui import QGuiApplication, QImage, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
-                               QLabel, QMainWindow, QMessageBox, QPushButton, QScrollArea, QSpinBox,
+from PySide6.QtWidgets import (QCheckBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
+                               QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QScrollArea, QSpinBox,
                                QVBoxLayout, QWidget)
 
 from .. import config as C
@@ -23,8 +24,9 @@ from ..core.settings import RigAssets, Settings
 from ..engine import Engine
 from ..io import profile as P
 from ..io.camera import list_cameras
+from ..io.vcam import UNITY_DEFAULT_NAME, backend_options
 from ..sysutil import app_data_dir, set_low_priority
-from .widgets import LabeledSlider, MarkerEditor, PreviewWidget
+from .widgets import LabeledSlider, MarkerEditor, PreviewWidget, StyledCombo
 
 log = logging.getLogger(__name__)
 
@@ -102,6 +104,8 @@ class MainWindow(QMainWindow):
         self._connect_engine()
         QShortcut(QKeySequence.StandardKey.Paste, self, activated=self.paste_clipboard)
 
+        pics = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.PicturesLocation)
+        self._set_photo_dir(Path(pics or Path.home() / "Pictures") / C.PHOTO_SUBDIR)
         self.load_demo(adjust_scale=False)
         self._apply_mode_ui()
         self.set_view("main")
@@ -121,8 +125,8 @@ class MainWindow(QMainWindow):
         # ---- Kamera & Ausgabe
         L.addWidget(_heading("Kamera & Ausgabe"))
         row = QHBoxLayout()
-        self.cmb_cam = QComboBox()
-        self.cmb_cam.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.cmb_cam = StyledCombo()
+        self.cmb_cam.setSizeAdjustPolicy(StyledCombo.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.btn_refresh = QPushButton("\u21bb")
         self.btn_refresh.setToolTip("Kameras neu suchen")
         self.btn_refresh.setFixedWidth(34)
@@ -140,13 +144,43 @@ class MainWindow(QMainWindow):
         self.btn_vcam.clicked.connect(self.toggle_vcam)
         L.addWidget(self.btn_vcam)
         self.lbl_vcam = _note("Virtuelle Kamera: aus. W\u00e4hle sie danach in Zoom, Discord, OBS usw. "
-                              "als \u201eOBS Virtual Camera\u201c.")
+                              "als Kamera aus.")
         L.addWidget(self.lbl_vcam)
+        # Backend der virtuellen Kamera (OBS / Unity Capture / v4l2loopback) und optionaler Geraetename
+        self.cmb_vbackend = StyledCombo()
+        self.cmb_vbackend.addItem("Automatisch (erstes verf\u00fcgbares)", None)
+        for key, label in backend_options():
+            self.cmb_vbackend.addItem(label, key)
+        self.cmb_vbackend.currentIndexChanged.connect(self._vcam_options_changed)
+        L.addWidget(QLabel("Virtuelle Kamera \u00fcber"))
+        L.addWidget(self.cmb_vbackend)
+        self.edit_vdevice = QLineEdit()
+        self.edit_vdevice.setPlaceholderText(self._vdevice_placeholder())
+        self.edit_vdevice.setToolTip("Optional. Unity Capture: der bei der Installation vergebene Name "
+                                     f"(Standard \u201e{UNITY_DEFAULT_NAME}\u201c). Linux: z. B. /dev/video10. "
+                                     "Leer = automatisch.")
+        self.edit_vdevice.textChanged.connect(self._vcam_options_changed)
+        L.addWidget(self.edit_vdevice)
+
+        # Foto: speichert das aktuelle Ausgabebild; der Countdown laeuft nur im Hintergrund
+        L.addWidget(QLabel("Foto"))
+        rf = QHBoxLayout()
+        self.btn_photo = QPushButton("Foto")
+        self.btn_photo_t = QPushButton(f"Foto in {C.PHOTO_DELAY_S} s")
+        self.btn_photo_dir = QPushButton("Ordner \u2026")
+        self.btn_photo.clicked.connect(lambda: self.engine.take_photo(0))
+        self.btn_photo_t.clicked.connect(lambda: self.engine.take_photo(C.PHOTO_DELAY_S))
+        self.btn_photo_dir.clicked.connect(self.choose_photo_dir)
+        for b in (self.btn_photo, self.btn_photo_t):
+            b.setEnabled(False)
+            rf.addWidget(b, 1)
+        rf.addWidget(self.btn_photo_dir)
+        L.addLayout(rf)
         self.cmb_cam.currentIndexChanged.connect(self._camera_changed)
 
         # ---- 1. Modus
         L.addWidget(_heading("1. Modus"))
-        self.cmb_mode = QComboBox()
+        self.cmb_mode = StyledCombo()
         self.cmb_mode.addItems(MODES)
         self.cmb_mode.setCurrentIndex(self.settings.mode)
         self.cmb_mode.currentIndexChanged.connect(self.on_mode_changed)
@@ -202,6 +236,11 @@ class MainWindow(QMainWindow):
         self.lbl_rest = _note("Sitz gerade vor der Kamera und klicke den Knopf. "
                               "Danach z\u00e4hlt nur die Abweichung davon.")
         L.addWidget(self.lbl_rest)
+        self.chk_track = self._check("PNG folgt dem Kopf", "track_head")
+        self.chk_track.setToolTip("Aus: Das PNG bleibt an der Stelle der Ruhelage stehen, Drehung und "
+                                  "Bewegung des Kopfes werden ignoriert. Augen und Mund bleiben live.")
+        self.chk_track.toggled.connect(lambda _: self._apply_mode_ui())
+        L.addWidget(self.chk_track)
         self.s_follow = self._slider("follow", "Kopf folgt (St\u00e4rke)")
         self.s_scale = self._slider("image_scale", "Bildgr\u00f6\u00dfe")
         self.s_hr = self._slider("head_ratio", "Kopf zu K\u00f6rper (Gr\u00f6\u00dfe)")
@@ -220,7 +259,7 @@ class MainWindow(QMainWindow):
         L.addWidget(self.chk_brows)
         L.addWidget(self.chk_mirror)
         L.addWidget(QLabel("Hintergrund"))
-        self.cmb_bg = QComboBox()
+        self.cmb_bg = StyledCombo()
         for name, val in C.BACKGROUNDS:
             self.cmb_bg.addItem(name, val)
         self.cmb_bg.currentIndexChanged.connect(
@@ -237,13 +276,13 @@ class MainWindow(QMainWindow):
         self.spin_fps.valueChanged.connect(lambda v: setattr(self.engine, "fps_limit", v))
         r.addWidget(self.spin_fps)
         L.addLayout(r)
-        self.cmb_track = QComboBox()
+        self.cmb_track = StyledCombo()
         self.cmb_track.addItem("Tracking jeden Frame", 1)
         self.cmb_track.addItem("Tracking jeden 2. Frame (mit Vorhersage)", 2)
         self.cmb_track.currentIndexChanged.connect(
             lambda _: setattr(self.settings, "track_every", self.cmb_track.currentData()))
         L.addWidget(self.cmb_track)
-        self.cmb_dev = QComboBox()
+        self.cmb_dev = StyledCombo()
         self.cmb_dev.addItem("Tracking auf CPU (empfohlen)", False)
         self.cmb_dev.addItem("Tracking auf GPU (experimentell)", True)
         self.cmb_dev.currentIndexChanged.connect(lambda _: self.engine.set_gpu(self.cmb_dev.currentData()))
@@ -301,7 +340,8 @@ class MainWindow(QMainWindow):
 
         # Sichtbarkeit je Modus
         self._two_widgets = [self.btn_up2, self.row_views, self.s_hr, self.chk_behind]
-        self._ns_widgets = [self.btn_rest, self.lbl_rest, self.s_follow]
+        self._ns_widgets = [self.s_follow]                       # nur Modus 1 und 2
+        self._rest_widgets = [self.btn_rest, self.lbl_rest]      # Modus 1/2, und Modus 0 ohne Kopfverfolgung
         for bg_i in range(self.cmb_bg.count()):
             if self.cmb_bg.itemData(bg_i) == self.settings.background:
                 self.cmb_bg.setCurrentIndex(bg_i)
@@ -330,6 +370,7 @@ class MainWindow(QMainWindow):
         e.cameraStarted.connect(self._on_cam_started)
         e.cameraStopped.connect(self._on_cam_stopped)
         e.vcamChanged.connect(self._on_vcam)
+        e.photoSaved.connect(self._on_photo)
 
     # ================================================================== Kamera
     def refresh_cameras(self):
@@ -370,6 +411,8 @@ class MainWindow(QMainWindow):
         self.btn_cam.setText("Kamera stoppen")
         self.btn_cam.setEnabled(True)
         self.btn_vcam.setEnabled(True)
+        self.btn_photo.setEnabled(True)
+        self.btn_photo_t.setEnabled(True)
         self.lbl_stats.setText(f"Kamera: {w}\u00d7{h}")
 
     def _on_cam_stopped(self):
@@ -377,11 +420,23 @@ class MainWindow(QMainWindow):
         self.btn_cam.setText("Kamera starten")
         self.btn_cam.setEnabled(self.cmb_cam.currentData() is not None)
         self.btn_vcam.setEnabled(False)
+        self.btn_photo.setEnabled(False)
+        self.btn_photo_t.setEnabled(False)
         self.preview.set_image(None)
         self.popout.view.set_image(None)
 
+    def _vdevice_placeholder(self) -> str:
+        return ("Ger\u00e4t, z. B. /dev/video10 (leer = automatisch)" if sys.platform.startswith("linux")
+                else f"Ger\u00e4tename, z. B. {UNITY_DEFAULT_NAME} (leer = automatisch)")
+
+    def _vcam_options_changed(self, *_):
+        """Backend/Geraet an die Engine geben (wirkt beim naechsten Start der virtuellen Kamera)."""
+        self.engine.vcam_backend = self.cmb_vbackend.currentData()
+        self.engine.vcam_device = self.edit_vdevice.text().strip() or None
+
     def toggle_vcam(self, checked: bool):
         self.btn_vcam.setEnabled(False)
+        self._vcam_options_changed()
         self.engine.set_vcam(checked)
 
     def _on_vcam(self, active: bool, device: str):
@@ -390,6 +445,8 @@ class MainWindow(QMainWindow):
         self.btn_vcam.blockSignals(False)
         self.btn_vcam.setEnabled(self._cam_running)
         self.btn_vcam.setText("Virtuelle Kamera stoppen" if active else "Virtuelle Kamera starten")
+        self.cmb_vbackend.setEnabled(not active)       # Wechsel nur bei gestoppter virtueller Kamera
+        self.edit_vdevice.setEnabled(not active)
         self.lbl_vcam.setText(f"Virtuelle Kamera: <b>an</b> ({device}). W\u00e4hle sie in deinem Programm aus."
                               if active else "Virtuelle Kamera: aus.")
 
@@ -397,6 +454,19 @@ class MainWindow(QMainWindow):
         self.btn_cam.setEnabled(self._cam_running or self.cmb_cam.currentData() is not None)
         self.btn_vcam.setEnabled(self._cam_running)
         QMessageBox.warning(self, title, text)
+
+    def choose_photo_dir(self):
+        d = QFileDialog.getExistingDirectory(self, "Ordner f\u00fcr Fotos", str(self.engine.photo_dir.parent
+                                             if not self.engine.photo_dir.exists() else self.engine.photo_dir))
+        if d:
+            self._set_photo_dir(Path(d))
+
+    def _set_photo_dir(self, d: Path):
+        self.engine.photo_dir = d
+        self.btn_photo_dir.setToolTip(f"Fotos werden gespeichert in:\n{d}")
+
+    def _on_photo(self, path: str):
+        self.lbl_status.setText(f"Foto gespeichert: {path}")
 
     def _on_stats(self, fps: float, track_ms: float, render_ms: float):
         self.lbl_stats.setText(f"{fps:.0f} fps \u00b7 Tracking {track_ms:.1f} ms \u00b7 Rendern {render_ms:.1f} ms")
@@ -446,6 +516,14 @@ class MainWindow(QMainWindow):
             w.setVisible(m == 2)
         for w in self._ns_widgets:
             w.setVisible(m != 0)
+        self.chk_track.setVisible(m == 0)
+        fixed = m == 0 and not self.settings.track_head
+        for w in self._rest_widgets:
+            w.setVisible(m != 0 or fixed)
+        self.lbl_rest.setText("Das PNG bleibt dort stehen, wo dein Gesicht in der Ruhelage war. "
+                              "Sitz so, wie es stehen soll, und klicke den Knopf." if fixed else
+                              "Sitz gerade vor der Kamera und klicke den Knopf. "
+                              "Danach z\u00e4hlt nur die Abweichung davon.")
         self.btn_up.setText("Eigenes Kopf-PNG" if m == 2 else "Eigene Datei")
         if m != 2 and self.view == "body":
             self.view = "main"
@@ -591,7 +669,9 @@ class MainWindow(QMainWindow):
     # ================================================================== Profile
     def _perf(self) -> dict:
         return {"fps": self.spin_fps.value(), "gpu": bool(self.cmb_dev.currentData()),
-                "low_priority": self.chk_prio.isChecked(), "preview": self.chk_prev.isChecked()}
+                "low_priority": self.chk_prio.isChecked(), "preview": self.chk_prev.isChecked(),
+                "vcam_backend": self.cmb_vbackend.currentData(), "vcam_device": self.edit_vdevice.text(),
+                "photo_dir": str(self.engine.photo_dir)}
 
     def _export_clipboard_layers(self, profile_path: Path):
         """Aus der Zwischenablage eingefuegte Bilder neben dem Profil als PNG ablegen."""
@@ -645,6 +725,13 @@ class MainWindow(QMainWindow):
             self.chk_prio.setChecked(bool(perf["low_priority"]))
         if "preview" in perf:
             self.chk_prev.setChecked(bool(perf["preview"]))
+        if "vcam_backend" in perf:
+            i = self.cmb_vbackend.findData(perf["vcam_backend"])     # unbekannt (anderes System) -> Automatisch
+            self.cmb_vbackend.setCurrentIndex(max(i, 0))
+        if isinstance(perf.get("vcam_device"), str):
+            self.edit_vdevice.setText(perf["vcam_device"])
+        if isinstance(perf.get("photo_dir"), str) and perf["photo_dir"]:
+            self._set_photo_dir(Path(perf["photo_dir"]))
         # 3) Bilder
         missing = []
         for view, ref_key, mk_key in (("main", "head", "head_markers"), ("body", "body", "body_marker")):
@@ -677,7 +764,7 @@ class MainWindow(QMainWindow):
     def _sync_controls(self):
         for key, sl in self.sliders.items():
             sl.set_value(getattr(self.settings, key))
-        for c in (self.chk_behind, self.chk_brows, self.chk_mirror):
+        for c in (self.chk_behind, self.chk_brows, self.chk_mirror, self.chk_track):
             c.blockSignals(True)
             c.setChecked(bool(getattr(self.settings, c.property("settingKey"))))
             c.blockSignals(False)

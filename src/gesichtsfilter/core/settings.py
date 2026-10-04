@@ -21,6 +21,7 @@ class Settings:
     brows: bool = C.DEFAULT_BROWS
     mirror: bool = C.DEFAULT_MIRROR
     behind: bool = C.DEFAULT_BEHIND         # Kopf hinter Koerper (nur Modus 2)
+    track_head: bool = C.DEFAULT_TRACK_HEAD  # PNG folgt dem Kopf (nur Modus 0 "Einfach")
     background: str = C.DEFAULT_BACKGROUND  # "cam" oder "#rrggbb"
     track_every: int = C.DEFAULT_TRACK_EVERY
 

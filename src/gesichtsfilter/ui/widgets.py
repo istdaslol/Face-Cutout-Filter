@@ -4,11 +4,25 @@ from typing import List, Optional, Sequence, Tuple
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (QBrush, QColor, QFont, QImage, QPainter, QPen, QPixmap)
-from PySide6.QtWidgets import QLabel, QSlider, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (QComboBox, QLabel, QListView, QSlider, QStyledItemDelegate, QVBoxLayout,
+                               QWidget)
 
 from ..core.raster import Sprite
 
 ACCENT = "#ffb347"
+
+
+class StyledCombo(QComboBox):
+    """Dropdown, dessen Liste vom Stylesheet gestaltet wird (lesbarer Hover/Auswahl-Eintrag).
+
+    Ohne eigene Listenansicht und Delegate ignoriert die Popup-Liste die ::item-Regeln des
+    Stylesheets; der Eintrag unter der Maus wurde dann dunkel auf dunkel gezeichnet.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setView(QListView(self))
+        self.setItemDelegate(QStyledItemDelegate(self))
 
 
 class LabeledSlider(QWidget):

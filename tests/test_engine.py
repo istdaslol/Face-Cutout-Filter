@@ -1,4 +1,9 @@
 """Engine (Thread) mit Attrappen: Start/Stop, virtuelle Kamera, fps-Limit, Fehlerpfade."""
+import re
+import time
+
+import cv2
+import numpy as np
 import pytest
 
 pytest.importorskip("PySide6")
@@ -24,7 +29,7 @@ class Collector(QObject):
     def __init__(self):
         super().__init__()
         self.previews, self.errors, self.started, self.stopped = [], [], [], 0
-        self.vcam, self.stats, self.status = [], [], []
+        self.vcam, self.stats, self.status, self.photos = [], [], [], []
 
     @Slot(QImage)
     def on_preview(self, i): self.previews.append(i)
@@ -40,6 +45,8 @@ class Collector(QObject):
     def on_stats(self, f, t, r): self.stats.append((f, t, r))
     @Slot(str)
     def on_status(self, s): self.status.append(s)
+    @Slot(str)
+    def on_photo(self, p): self.photos.append(p)
 
 
 @pytest.fixture
@@ -51,12 +58,12 @@ def eng(qapp):
     c = Collector()
     e.previewReady.connect(c.on_preview); e.errorOccurred.connect(c.on_error)
     e.cameraStarted.connect(c.on_started); e.cameraStopped.connect(c.on_stopped)
-    e.vcamChanged.connect(c.on_vcam); e.stats.connect(c.on_stats); e.status.connect(c.on_status)
+    e.vcamChanged.connect(c.on_vcam); e.photoSaved.connect(c.on_photo); e.stats.connect(c.on_stats); e.status.connect(c.on_status)
     e.start()
     wait_for.diag = lambda: (
         f"Thread laeuft: {e.isRunning()}, Kamera offen: {e._grabber is not None}, "
         f"Vorschauen: {len(c.previews)}, Statistik: {c.stats[-1:] }, gestartet: {c.started}, "
-        f"Fehler: {c.errors}, vcam: {c.vcam[-2:]}, Status: {c.status[-3:]}, "
+        f"Fotos: {c.photos}, Fehler: {c.errors}, vcam: {c.vcam[-2:]}, Status: {c.status[-3:]}, "
         f"fps_limit: {e.fps_limit}, preview_enabled: {e.preview_enabled}")
     yield e, c
     wait_for.diag = None
@@ -171,3 +178,102 @@ def test_gpu_umschalten_baut_tracker_neu(eng):
     e.set_gpu(True)
     assert wait_for(lambda: e._tracker is not first and e._tracker.use_gpu is True)
     assert first.closed
+
+
+# ---------------------------------------------------------------- Foto
+def read_img(path):
+    return cv2.imdecode(np.fromfile(path, np.uint8), cv2.IMREAD_COLOR)
+
+
+def test_foto_sofort_ist_das_ausgabebild_in_voller_aufloesung(eng, tmp_path):
+    e, c = eng
+    e.photo_dir = tmp_path / "neu" / "Bilder mit \u00e4\u00f6\u00fc"          # Ordner existiert noch nicht
+    e.settings.background = "#0000ff"                                     # Ausgabe ist erkennbar nicht das Kamerabild
+    e.open_camera(INFO)
+    assert wait_for(lambda: c.started)
+    e.take_photo(0)
+    assert wait_for(lambda: len(c.photos) == 1)
+    path = c.photos[0]
+    assert re.search(r"Foto_\d{8}_\d{6}\.png$", path) and path.startswith(str(e.photo_dir))
+    img = read_img(path)
+    assert img.shape == (360, 640, 3)
+    assert img[5, 5].tolist() == [255, 0, 0]                              # BGR von #0000ff -> gerendert, nicht roh
+
+
+def test_foto_mit_verzoegerung_kommt_nicht_zu_frueh(eng, tmp_path):
+    e, c = eng
+    e.photo_dir = tmp_path
+    e.open_camera(INFO)
+    assert wait_for(lambda: c.started)
+    t0 = time.monotonic()
+    e.take_photo(1.0)
+    pump(600)
+    assert c.photos == [] and list(tmp_path.glob("*.png")) == []          # nach 0,6 s noch nichts
+    assert wait_for(lambda: len(c.photos) == 1, 5000)
+    dt = time.monotonic() - t0
+    assert 0.95 <= dt < 2.5, f"Foto nach {dt:.2f} s"
+    assert c.errors == []
+
+
+def test_mehrere_fotos_haben_eindeutige_namen(eng, tmp_path):
+    e, c = eng
+    e.photo_dir = tmp_path
+    e.open_camera(INFO)
+    assert wait_for(lambda: c.started)
+    for _ in range(3):
+        e.take_photo(0)
+    assert wait_for(lambda: len(c.photos) == 3)
+    assert len(set(c.photos)) == 3 and len(list(tmp_path.glob("Foto_*.png"))) == 3
+
+
+def test_foto_ohne_kamera_wird_ignoriert_und_nicht_nachgeholt(eng, tmp_path):
+    e, c = eng
+    e.photo_dir = tmp_path
+    e.take_photo(0)
+    pump(400)
+    e.open_camera(INFO)
+    assert wait_for(lambda: len(c.previews) >= 3)
+    pump(300)
+    assert c.photos == [] and list(tmp_path.iterdir()) == []
+
+
+def test_ausstehendes_foto_wird_verworfen_wenn_die_kamera_stoppt(eng, tmp_path):
+    e, c = eng
+    e.photo_dir = tmp_path
+    e.open_camera(INFO)
+    assert wait_for(lambda: c.started)
+    e.take_photo(0.8)
+    e.close_camera()
+    assert wait_for(lambda: c.stopped == 1)
+    e.open_camera(INFO)                                                   # neue Kamera-Sitzung nach Faelligkeit
+    pump(1500)
+    assert c.photos == [] and list(tmp_path.glob("*.png")) == []
+
+
+def test_foto_fehler_wird_gemeldet_statt_still_zu_scheitern(eng, tmp_path):
+    e, c = eng
+    blockiert = tmp_path / "ist_eine_datei"
+    blockiert.write_text("x")
+    e.photo_dir = blockiert / "unterordner"                               # kann nicht angelegt werden
+    e.open_camera(INFO)
+    assert wait_for(lambda: c.started)
+    e.take_photo(0)
+    assert wait_for(lambda: c.errors)
+    assert c.errors[-1][0] == "Foto" and "nicht gespeichert" in c.errors[-1][1] and c.photos == []
+    assert e.isRunning() and wait_for(lambda: len(c.previews) >= 2)       # Ausgabe laeuft weiter
+
+
+# ---------------------------------------------------------------- Backend der virtuellen Kamera
+def test_vcam_backend_und_geraet_werden_weitergegeben(eng):
+    e, c = eng
+    e.open_camera(INFO)
+    assert wait_for(lambda: c.started)
+    e.set_vcam(True)
+    assert wait_for(lambda: c.vcam and c.vcam[-1][0])
+    assert e.vcam.started_with == (None, None)                            # Standard: automatisch
+    e.set_vcam(False)
+    assert wait_for(lambda: c.vcam[-1][0] is False)
+    e.vcam_backend, e.vcam_device = "unitycapture", "Gesichtsfilter Kamera"
+    e.set_vcam(True)
+    assert wait_for(lambda: c.vcam[-1][0] is True)
+    assert e.vcam.started_with == ("unitycapture", "Gesichtsfilter Kamera")
