@@ -26,3 +26,16 @@ Falls Skripte in PowerShell blockiert sind:
    Log-Datei bei Problemen:  %APPDATA%\Gesichtsfilter\log.txt
    Zuletzt benutzte Einstellungen:  %APPDATA%\Gesichtsfilter\zuletzt.json
    (zum Zuruecksetzen diese Datei loeschen)
+
+Linux (Ubuntu, apt)
+-------------------
+   chmod +x install.sh        (falls das Ausfuehrungsrecht fehlt; alternativ: bash install.sh)
+   ./install.sh --dry-run     zeigt nur, was passieren wuerde
+   ./install.sh               installiert Systempakete, Python (3.10-3.12), .venv, Pakete, Modell,
+                              virtuelle Kamera (v4l2loopback, /dev/video10 "Gesichtsfilter") und Startbefehl
+   gesichtsfilter             startet das Programm
+   ./install.sh --uninstall   entfernt Startbefehl, Menueeintrag, .venv und Kamera-Einstellungen
+   Weitere Optionen: ./install.sh --help
+   Hinweis: Bei aktivem Secure Boot muss das v4l2loopback-Modul signiert sein (siehe Meldung des Skripts).
+
+Foto-Ordner:  <Bilder>/Gesichtsfilter   (im Programm mit "Ordner ..." aenderbar)
