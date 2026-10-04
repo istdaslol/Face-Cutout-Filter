@@ -1,0 +1,28 @@
+Entwicklungsumgebung einrichten (Windows, PowerShell)
+
+1. Python 3.11 (64 Bit) installieren (python.org). NICHT 3.12 oder neuer.
+2. Im Projektordner:
+
+     py -3.11 -m venv .venv
+     .\.venv\Scripts\Activate.ps1
+     python -m pip install --upgrade pip
+     pip install -r requirements-dev.txt
+     python tools\fetch_model.py
+
+3. Pruefen:
+
+     python -c "import mediapipe, cv2, numpy, PySide6, pyvirtualcam; print(mediapipe.__version__, cv2.__version__, numpy.__version__)"
+   Erwartet: 0.10.21 4.11.0 1.26.4
+
+Falls Skripte in PowerShell blockiert sind:
+     Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+
+4. Tests:
+     pytest -q
+   (Tests mit echtem Modell brauchen Bilder in tests\bilder\, sonst werden sie uebersprungen.)
+
+5. Programm starten:
+     python run.py
+   Log-Datei bei Problemen:  %APPDATA%\Gesichtsfilter\log.txt
+   Zuletzt benutzte Einstellungen:  %APPDATA%\Gesichtsfilter\zuletzt.json
+   (zum Zuruecksetzen diese Datei loeschen)

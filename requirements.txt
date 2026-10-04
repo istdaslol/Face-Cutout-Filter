@@ -1,0 +1,15 @@
+# Laufzeit-Abhaengigkeiten. Python 3.11 (64 Bit) erforderlich.
+# Alle Versionen sind festgenagelt.
+#
+# Hinweis zu OpenCV: mediapipe 0.10.21 zieht "opencv-contrib-python" nach.
+# Wuerde man zusaetzlich "opencv-python" installieren, ueberschreiben sich
+# beide Pakete gegenseitig (beide liefern das Modul "cv2"). Deshalb wird hier
+# bewusst NUR opencv-contrib-python verwendet. Es enthaelt alles aus
+# opencv-python plus Zusatzmodule.
+
+mediapipe==0.10.21
+numpy==1.26.4              # mediapipe 0.10.21 verlangt numpy<2
+opencv-contrib-python==4.11.0.86   # letzte Version mit numpy-1.x-Unterstuetzung
+PySide6==6.8.3
+pyvirtualcam==0.14.0
+cv2-enumerate-cameras==1.4.0   # Kameranamen unter Windows (DirectShow)

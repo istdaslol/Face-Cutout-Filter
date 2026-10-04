@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+*.pyc
+build/
+dist/
+installer_out/
+*.spec.bak
+.pytest_cache/
+# Das Modell wird NICHT eingecheckt, sondern mit tools/fetch_model.py geholt
+# (im CI-Build ebenfalls). Zum Einchecken diese Zeile entfernen.
+models/face_landmarker.task
+
+# Bilder der Tests
+tests/bilder/
+tests/ausgabe/
+ausgabe/
+
+# IDE
+.idea/

@@ -1,0 +1,4 @@
+# Nur fuer Entwicklung, Tests und den Installer-Build.
+-r requirements.txt
+pytest==8.3.5
+pyinstaller==6.16.0
