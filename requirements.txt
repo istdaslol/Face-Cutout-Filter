@@ -7,7 +7,7 @@
 # bewusst NUR opencv-contrib-python verwendet. Es enthaelt alles aus
 # opencv-python plus Zusatzmodule.
 
-mediapipe==1.01
+mediapipe==1.0.1
 numpy==2.4.6
 opencv-contrib-python==5.0.0.93
 PySide6-Essentials==6.11.2   # nur QtCore/Gui/Widgets (+QtTest): ohne die 160 MB PySide6-Addons
