@@ -7,9 +7,9 @@
 # bewusst NUR opencv-contrib-python verwendet. Es enthaelt alles aus
 # opencv-python plus Zusatzmodule.
 
-mediapipe==0.10.21
-numpy==1.26.4              # mediapipe 0.10.21 verlangt numpy<2
-opencv-contrib-python==4.11.0.86   # letzte Version mit numpy-1.x-Unterstuetzung
-PySide6-Essentials==6.8.3   # nur QtCore/Gui/Widgets (+QtTest): ohne die 160 MB PySide6-Addons
-pyvirtualcam==0.14.0
+mediapipe==1.01
+numpy==2.4.6
+opencv-contrib-python==5.0.0.93
+PySide6-Essentials==6.11.2   # nur QtCore/Gui/Widgets (+QtTest): ohne die 160 MB PySide6-Addons
+pyvirtualcam==0.15.0
 cv2-enumerate-cameras==1.4.0   # Kameranamen unter Windows (DirectShow)
