@@ -4,7 +4,7 @@
 #
 # Was das Skript macht:
 #   1. Systempakete per apt installieren (Qt-/OpenCV-Bibliotheken, ggf. Python)
-#   2. Python 3.10 - 3.12 suchen (Python 3.11 wird bevorzugt) oder installieren
+#   2. Python 3.11 - 3.13 suchen (Python 3.11 wird bevorzugt) oder installieren
 #   3. virtuelle Umgebung .venv anlegen und requirements.txt installieren
 #   4. Gesichtsmodell (models/face_landmarker.task) herunterladen
 #   5. virtuelle Kamera einrichten: v4l2loopback (/dev/video10, "Gesichtsfilter")
@@ -16,17 +16,17 @@
 #   ./install.sh --help           alle Optionen
 #   ./install.sh --uninstall      Startbefehl, Menueeintrag, .venv, Kamera-Einstellungen entfernen
 #
-# Getestet mit: Ubuntu 24.04 (Python 3.12). Ubuntu 22.04 sollte funktionieren
-# (Python 3.10 oder 3.11 ueber deadsnakes). Andere Distributionen: nicht getestet.
+# Getestet mit: Ubuntu 24.04 (Python 3.12). Ubuntu 22.04 hat nur Python 3.10: dort wird
+# Python 3.11 ueber deadsnakes installiert. Andere Distributionen: nicht getestet.
 # =============================================================================
 set -euo pipefail
 
 # ----------------------------------------------------------------------------
 # Einstellungen (hier oben anpassen)
 # ----------------------------------------------------------------------------
-PY_MIN=10                      # kleinste unterstuetzte Python-3-Nebenversion (3.10)
-PY_MAX=12                      # groesste unterstuetzte Python-3-Nebenversion (3.12, wegen mediapipe)
-PY_PREFERRED=(python3.11 python3.12 python3.10 python3)   # Reihenfolge der Suche
+PY_MIN=11                      # kleinste unterstuetzte Python-3-Nebenversion (3.11, wegen numpy 2.4)
+PY_MAX=13                      # groesste getestete Python-3-Nebenversion (3.13; PySide6 erlaubt bis 3.14)
+PY_PREFERRED=(python3.11 python3.12 python3.13 python3)   # Reihenfolge der Suche
 PY_INSTALL_VERSION="3.11"      # wird installiert, wenn nichts Passendes gefunden wird
 VCAM_NR=10                     # /dev/video10
 VCAM_LABEL="Gesichtsfilter"    # Name der virtuellen Kamera in Zoom, Discord, OBS ...

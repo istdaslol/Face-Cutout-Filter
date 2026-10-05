@@ -1,13 +1,16 @@
 """Programmstart: Logging, Design, Pruefungen, Hauptfenster."""
 import logging
 import logging.handlers
+import os
 import sys
 import threading
+from typing import List, Optional
 
 from PySide6.QtCore import QSettings, QTimer
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QCheckBox, QMessageBox
 
+from . import __version__
 from .core.settings import RigAssets, Settings
 from .engine import Engine
 from .io.vcam import any_backend_installed, missing_hint
@@ -88,7 +91,134 @@ def _check_vcam(parent):
         cfg.setValue("vcam_hinweis_aus", True)
 
 
-def main() -> int:
+def selftest(report_path: Optional[str] = None) -> int:
+    """Pruefung ohne Kamera: Ist dieses Programm (z.B. ein PyInstaller-Build) vollstaendig?
+
+    Aufruf:  Gesichtsfilter.exe --selftest [bericht.txt]      (Rueckgabewert 0 = alles in Ordnung)
+    Prueft Importe, OpenCV, das Gesichtsmodell samt MediaPipe, das Rendern aller Modi und Qt.
+    Die Windows-Version hat kein Konsolenfenster, deshalb wird der Bericht auch in eine Datei geschrieben.
+    """
+    import numpy as np
+    lines: List[str] = [f"Gesichtsfilter {__version__} - Selbsttest",
+                        f"Python {sys.version.split()[0]}, gepackt: {bool(getattr(sys, 'frozen', False))}"]
+    failed: List[str] = []
+
+    def check(name, fn):
+        try:
+            detail = fn()
+        except Exception as e:  # jede Art von Fehler soll im Bericht stehen, nicht das Programm beenden
+            failed.append(name)
+            lines.append(f"FEHLER  {name}: {type(e).__name__}: {e}")
+        else:
+            lines.append(f"OK      {name}" + (f": {detail}" if detail else ""))
+
+    def c_opencv():
+        import cv2
+        a = np.zeros((40, 40, 3), np.uint8)
+        cv2.fillPoly(a, [np.array([[5, 5], [30, 8], [20, 30]], np.int32)], (255, 255, 255), lineType=cv2.LINE_AA)
+        cv2.GaussianBlur(a, (0, 0), 3)
+        cv2.warpAffine(a, np.float64([[1, 0, 2], [0, 1, 2]]), (40, 40))
+        return f"OpenCV {cv2.__version__}, NumPy {np.__version__}"
+
+    def c_mediapipe():
+        import mediapipe
+        from mediapipe.tasks.python import BaseOptions, vision
+        assert vision.FaceLandmarker and BaseOptions
+        return f"mediapipe {mediapipe.__version__}"
+
+    def c_model():
+        from .paths import MODEL_REL, resource
+        p = resource(MODEL_REL)
+        if not p.exists():
+            raise FileNotFoundError(f"fehlt: {p}")
+        if p.stat().st_size < 1_000_000:
+            raise ValueError(f"zu klein ({p.stat().st_size} Bytes): {p}")
+        return f"{p.stat().st_size // 1024} KB"
+
+    def c_tracker():
+        from .core.tracker import FaceTracker
+        t = FaceTracker()
+        try:
+            if t.detect(np.zeros((360, 640, 3), np.uint8)) is not None:
+                raise AssertionError("Gesicht in leerem Bild erkannt")
+        finally:
+            t.close()
+        return f"Modell geladen ({t.delegate_used})"
+
+    def c_render():
+        from .core.demo import demo_assets, peanut_assets
+        from .core.rig import Rig
+        from .core.synthetic import make_face
+        cam = np.full((360, 640, 3), (90, 110, 70), np.uint8)
+        face = make_face(0.5, 0.4, aspect=640 / 360)
+        for mode, assets in ((0, demo_assets()), (1, peanut_assets()), (2, demo_assets(True))):
+            r = Rig()
+            r.set_rest_pose()
+            out = r.render(cam, face, Settings(mode=mode, mirror=False, image_scale=0.5 if mode == 2 else 1.0),
+                           assets)
+            if out.shape != cam.shape or np.array_equal(out, cam):
+                raise AssertionError(f"Modus {mode}: nichts eingeblendet")
+        return "Modi 0, 1 und 2"
+
+    def c_vcam():
+        import pyvirtualcam
+        from .io.vcam import backend_options
+        return f"pyvirtualcam {pyvirtualcam.__version__}, Backends: " + ", ".join(k for k, _ in backend_options())
+
+    def c_cameras():
+        from .io.camera import list_cameras
+        return f"{len(list_cameras())} Kamera(s) gefunden"
+
+    def c_qt():
+        import PySide6
+        from PySide6.QtWidgets import QApplication
+        from .core.demo import demo_assets
+        from .ui.widgets import MarkerEditor, StyledCombo
+        app = QApplication.instance() or QApplication([])
+        a = demo_assets()
+        ed = MarkerEditor()
+        ed.resize(200, 200)
+        ed.set_content(a.head, a.head_markers, [0, 1, 2], {i: ("x", "#fff", "L") for i in range(5)})
+        box = StyledCombo()
+        box.addItems(["a", "b"])
+        if ed.grab().isNull() or box.grab().isNull():
+            raise AssertionError("Widgets lassen sich nicht zeichnen")
+        return f"PySide6 {PySide6.__version__}, Plattform: {app.platformName()}"
+
+    check("OpenCV / NumPy", c_opencv)
+    check("MediaPipe (Programmteile)", c_mediapipe)
+    check("Gesichtsmodell vorhanden", c_model)
+    check("Tracking mit Modell", c_tracker)
+    check("Rendern aller Modi", c_render)
+    check("Virtuelle Kamera (pyvirtualcam)", c_vcam)
+    check("Kameras suchen", c_cameras)
+    check("Oberflaeche (Qt)", c_qt)
+    lines.append("ERGEBNIS: OK" if not failed else f"ERGEBNIS: FEHLER ({len(failed)}: {', '.join(failed)})")
+
+    text = "\n".join(lines) + "\n"
+    if report_path:
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write(text)
+    if sys.stdout is not None:      # None in der Windows-Version ohne Konsole
+        try:
+            sys.stdout.write(text)
+            sys.stdout.flush()
+        except Exception:
+            pass
+    return 1 if failed else 0
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # Windows-Version ohne Konsole (PyInstaller --windowed): stdout/stderr sind None. Bibliotheken, die dorthin
+    # schreiben (absl, mediapipe), duerfen daran nicht scheitern.
+    for name in ("stdout", "stderr"):
+        if getattr(sys, name) is None:
+            setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
+    if "--selftest" in argv:
+        i = argv.index("--selftest")
+        path = argv[i + 1] if i + 1 < len(argv) and not argv[i + 1].startswith("--") else None
+        return selftest(path)
     log_path = setup_logging()
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)

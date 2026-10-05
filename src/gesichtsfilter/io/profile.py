@@ -1,14 +1,19 @@
 """Speichern/Laden von Einstellungen und Markern als JSON.
 
 Zwei Arten von Dateien:
-  * Profil   (*.json): Einstellungen + beide Bilder (als Verweis) + alle Marker.
-  * Sidecar  (<bild>.marker.json): nur die Marker EINES Bildes, wird automatisch
-    neben dem Bild abgelegt und beim naechsten Laden desselben Bildes gelesen.
+  * Profil       (*.json): Einstellungen + beide Bilder (als Verweis) + alle Marker.
+  * Marker-Speicher: die Marker je Bild, automatisch im Datenordner des Programms
+    (%APPDATA%\\Gesichtsfilter\\marker\\<SHA256 der Bilddatei>.json). Zugeordnet wird ueber die
+    Pruefsumme des Dateiinhalts: Umbenennen oder Verschieben des Bildes ist egal, ein veraendertes
+    Bild bekommt neue Marker. Neben den Bildern wird nichts mehr abgelegt.
 """
+import hashlib
 import json
 import os
 from pathlib import Path
 from typing import List, Optional
+
+from ..sysutil import app_data_dir
 
 PROFILE_VERSION = 1
 PROFILE_KIND = "gesichtsfilter-profil"
@@ -23,26 +28,79 @@ def _markers_ok(m, n_min: int, n_max: int) -> Optional[List[List[float]]]:
     return out if n_min <= len(out) <= n_max else None
 
 
-# ---------------------------------------------------------------- Sidecar
-def sidecar_path(image_path) -> Path:
+# ---------------------------------------------------------------- Marker-Speicher
+def image_hash(image_path) -> Optional[str]:
+    """SHA256 des Dateiinhalts (None, wenn die Datei nicht lesbar ist)."""
+    h = hashlib.sha256()
+    try:
+        with open(image_path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+    except OSError:
+        return None
+    return h.hexdigest()
+
+
+def marker_store_dir() -> Path:
+    return app_data_dir() / "marker"
+
+
+def marker_file(image_path, store_dir=None) -> Optional[Path]:
+    digest = image_hash(image_path)
+    return None if digest is None else Path(store_dir or marker_store_dir()) / f"{digest}.json"
+
+
+def _read_store(path: Path) -> dict:
+    """{"5": [[x,y]...], "1": [[x,y]]}: Marker getrennt nach Anzahl (Kopf-Bild: 5, Koerper-Bild: 1),
+    damit dasselbe Bild als Kopf und als Koerper verwendet werden kann."""
+    try:
+        d = json.loads(path.read_text(encoding="utf-8"))
+        m = d["markers"]
+        return m if isinstance(m, dict) else {}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+
+
+def save_markers(image_path, markers, store_dir=None) -> None:
+    f = marker_file(image_path, store_dir)
+    if f is None:
+        return
+    try:
+        f.parent.mkdir(parents=True, exist_ok=True)
+        store = _read_store(f)
+        store[str(len(markers))] = markers
+        f.write_text(json.dumps({"version": PROFILE_VERSION, "image": Path(image_path).name, "markers": store},
+                                indent=1), encoding="utf-8")
+    except OSError:
+        pass  # Merkfunktion ist nur Komfort, nie ein Grund fuer einen Fehler
+
+
+def _legacy_path(image_path) -> Path:
     p = Path(image_path)
     return p.with_name(p.name + ".marker.json")
 
 
-def save_sidecar(image_path, markers) -> None:
-    try:
-        sidecar_path(image_path).write_text(
-            json.dumps({"version": PROFILE_VERSION, "markers": markers}, indent=1), encoding="utf-8")
-    except OSError:
-        pass  # z.B. schreibgeschuetzter Ordner: dann eben ohne Merkfunktion
+def load_markers(image_path, n_min: int, n_max: int, store_dir=None) -> Optional[List[List[float]]]:
+    """Gespeicherte Marker fuer dieses Bild (Anzahl zwischen n_min und n_max) oder None.
 
-
-def load_sidecar(image_path, n_min: int, n_max: int) -> Optional[List[List[float]]]:
+    Aeltere Versionen legten die Marker als <bild>.marker.json neben das Bild: Sie werden einmalig
+    gelesen und in den Speicher uebernommen (die alte Datei bleibt unberuehrt liegen).
+    """
+    f = marker_file(image_path, store_dir)
+    if f is None:
+        return None
+    store = _read_store(f)
+    for n in range(n_min, n_max + 1):
+        got = _markers_ok(store.get(str(n)), n_min, n_max)
+        if got:
+            return got
     try:
-        d = json.loads(sidecar_path(image_path).read_text(encoding="utf-8"))
-        return _markers_ok(d["markers"], n_min, n_max)
+        legacy = _markers_ok(json.loads(_legacy_path(image_path).read_text(encoding="utf-8"))["markers"], n_min, n_max)
     except (OSError, ValueError, KeyError, TypeError):
         return None
+    if legacy:
+        save_markers(image_path, legacy, store_dir)
+    return legacy
 
 
 # ---------------------------------------------------------------- Profil

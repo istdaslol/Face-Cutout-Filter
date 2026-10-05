@@ -1,11 +1,11 @@
-# Laufzeit-Abhaengigkeiten. Python 3.11 (64 Bit) erforderlich.
-# Alle Versionen sind festgenagelt.
+# Laufzeit-Abhaengigkeiten. Alle Versionen sind festgenagelt.
 #
-# Hinweis zu OpenCV: mediapipe 0.10.21 zieht "opencv-contrib-python" nach.
-# Wuerde man zusaetzlich "opencv-python" installieren, ueberschreiben sich
-# beide Pakete gegenseitig (beide liefern das Modul "cv2"). Deshalb wird hier
-# bewusst NUR opencv-contrib-python verwendet. Es enthaelt alles aus
-# opencv-python plus Zusatzmodule.
+# Python: 3.11 bis 3.13 (numpy 2.4 verlangt mindestens 3.11; PySide6 6.11 erlaubt bis 3.14).
+# Windows-Build und CI verwenden 3.11.
+#
+# Hinweis zu OpenCV: mediapipe zieht "opencv-contrib-python" nach. Wuerde man zusaetzlich
+# "opencv-python" installieren, ueberschreiben sich beide Pakete gegenseitig (beide liefern
+# das Modul "cv2"). Deshalb wird hier bewusst NUR opencv-contrib-python verwendet.
 
 mediapipe==1.0.1
 numpy==2.4.6

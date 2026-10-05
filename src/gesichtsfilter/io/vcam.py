@@ -7,6 +7,7 @@ Unterstuetzte Backends (Namen wie in pyvirtualcam):
 Ohne Angabe probiert pyvirtualcam alle verfuegbaren Backends der Reihe nach durch.
 """
 import sys
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 import cv2
@@ -16,7 +17,11 @@ import numpy as np
 OBS_VCAM_CLSID = "{A3FCE0F5-3493-419F-958A-ABA1250EC20B}"
 # CLSID des 64-Bit-Filters von Unity Capture (aus dem Quelltext: UnityCaptureFilter.cpp)
 UNITY_CAPTURE_CLSID = "{5C2CD55C-92AD-4999-8666-912BD3E70010}"
-UNITY_DEFAULT_NAME = "Unity Video Capture"
+# Standardname der virtuellen Kamera; MUSS mit "#define DefaultCamName" in packaging/installer.iss übereinstimmen (Test prüft das)
+UNITY_DEFAULT_NAME = "Gesichtsfilter"
+# Der Windows-Installer schreibt hierhin den Namen, unter dem er Unity Capture registriert hat
+# (Datei liegt neben der .exe, UTF-8).
+UNITY_NAME_FILE = "unitycapture_name.txt"
 
 BACKEND_LABELS = {
     "obs": "OBS Virtual Camera",
@@ -27,6 +32,17 @@ BACKEND_LABELS = {
 
 class VirtualCamError(RuntimeError):
     """Virtuelle Kamera nicht startbar (Text ist fuer Anwender gedacht)."""
+
+
+def installed_unity_name() -> Optional[str]:
+    """Vom Installer vergebener Unity-Capture-Name (nur in der installierten Windows-Version)."""
+    if not getattr(sys, "frozen", False):
+        return None
+    try:
+        text = (Path(sys.executable).parent / UNITY_NAME_FILE).read_text(encoding="utf-8-sig")
+    except OSError:
+        return None
+    return text.strip() or None
 
 
 # ---------------------------------------------------------------- Erkennung
@@ -134,7 +150,12 @@ class VirtualCamera:
 
     def start(self, width: int, height: int, fps: int,
               backend: Optional[str] = None, device: Optional[str] = None) -> None:
-        """backend=None: automatisch. device: z.B. Unity-Capture-Name oder /dev/video10."""
+        """backend=None: automatisch. device: z.B. Unity-Capture-Name oder /dev/video10.
+
+        Hat der Installer Unity Capture unter eigenem Namen registriert, wird dieser Name verwendet,
+        wenn Unity Capture gewaehlt ist und kein Geraet eingetragen wurde. Im Automatik-Modus gibt es
+        einen zweiten Versuch mit diesem Namen, falls pyvirtualcam mit den Standardnamen scheitert.
+        """
         if self._cam is not None:
             self.stop()
         backend = backend or None
@@ -143,17 +164,23 @@ class VirtualCamera:
             import pyvirtualcam
         except Exception as e:  # pragma: no cover
             raise VirtualCamError(f"pyvirtualcam konnte nicht geladen werden: {e}") from e
-        kwargs = dict(width=width, height=height, fps=int(fps), fmt=pyvirtualcam.PixelFormat.BGR)
-        if backend:
-            kwargs["backend"] = backend
-        if device:
-            kwargs["device"] = device
-        try:
-            self._cam = pyvirtualcam.Camera(**kwargs)
-        except Exception as e:
-            self._cam = None
-            raise VirtualCamError(self._friendly(e, backend, device)) from e
-        self.size = (width, height)
+        base = dict(width=width, height=height, fps=int(fps), fmt=pyvirtualcam.PixelFormat.BGR)
+        named = installed_unity_name()
+        if backend == "unitycapture" and not device:
+            device = named
+        attempts = [{**base, **({"backend": backend} if backend else {}), **({"device": device} if device else {})}]
+        if backend is None and device is None and named:
+            attempts.append({**base, "backend": "unitycapture", "device": named})
+        error: Optional[Exception] = None
+        for kwargs in attempts:
+            try:
+                self._cam = pyvirtualcam.Camera(**kwargs)
+                self.size = (width, height)
+                return
+            except Exception as e:
+                self._cam = None
+                error = e if error is None else RuntimeError(f"{error}\n{e}")
+        raise VirtualCamError(self._friendly(error, backend, device)) from error
 
     @staticmethod
     def _friendly(err: Exception, backend: Optional[str], device: Optional[str]) -> str:

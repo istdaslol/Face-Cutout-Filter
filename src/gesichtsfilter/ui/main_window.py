@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (QCheckBox, QFileDialog, QFrame, QGridLayout, QHBo
                                QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QScrollArea, QSpinBox,
                                QVBoxLayout, QWidget)
 
+from .. import __version__
 from .. import config as C
 from ..core.demo import demo_assets, peanut_assets
 from ..core.raster import Sprite
@@ -24,7 +25,7 @@ from ..core.settings import RigAssets, Settings
 from ..engine import Engine
 from ..io import profile as P
 from ..io.camera import list_cameras
-from ..io.vcam import UNITY_DEFAULT_NAME, backend_options
+from ..io.vcam import UNITY_DEFAULT_NAME, backend_options, installed_unity_name
 from ..sysutil import app_data_dir, set_low_priority
 from .widgets import LabeledSlider, MarkerEditor, PreviewWidget, StyledCombo
 
@@ -96,7 +97,7 @@ class MainWindow(QMainWindow):
         self._scale_auto = False
         self._cam_running = False
         self.sliders: Dict[str, LabeledSlider] = {}
-        self.setWindowTitle("Gesichtsfilter \u2013 Augen & Mund auf PNG")
+        self.setWindowTitle(f"Gesichtsfilter {__version__} \u2013 Augen & Mund auf PNG")
         self.setAcceptDrops(True)
         self.popout = PreviewWindow()
 
@@ -427,7 +428,7 @@ class MainWindow(QMainWindow):
 
     def _vdevice_placeholder(self) -> str:
         return ("Ger\u00e4t, z. B. /dev/video10 (leer = automatisch)" if sys.platform.startswith("linux")
-                else f"Ger\u00e4tename, z. B. {UNITY_DEFAULT_NAME} (leer = automatisch)")
+                else f"Ger\u00e4tename, z. B. {installed_unity_name() or UNITY_DEFAULT_NAME} (leer = automatisch)")
 
     def _vcam_options_changed(self, *_):
         """Backend/Geraet an die Engine geben (wirkt beim naechsten Start der virtuellen Kamera)."""
@@ -597,7 +598,7 @@ class MainWindow(QMainWindow):
         self.last_dir = str(Path(path).parent)
         n = (5, 5) if view == "main" else (1, 1)
         default = C.DEFAULT_MARKERS if view == "main" else C.DEFAULT_BODY_MARKER
-        markers = P.load_sidecar(path, *n) or [m[:] for m in default]
+        markers = P.load_markers(path, *n) or [m[:] for m in default]
         self._set_layer(view, sprite, markers, {"kind": "file", "path": str(path)})
 
     def choose_file(self):
@@ -663,7 +664,7 @@ class MainWindow(QMainWindow):
     def _save_sidecar(self):
         s = self.src.get(self.view)
         if s and s["kind"] == "file":
-            P.save_sidecar(s["path"], self.assets.head_markers if self.view == "main"
+            P.save_markers(s["path"], self.assets.head_markers if self.view == "main"
                            else self.assets.body_marker)
 
     # ================================================================== Profile

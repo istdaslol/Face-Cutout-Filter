@@ -49,3 +49,20 @@ WSL2 und Windows im selben Ordner
    Abhilfe: Projekt fuer WSL ins Linux-Home kopieren (z.B. ~/Face-Cutout-Filter) und dort installieren,
    oder die Windows-.venv umbenennen. Unter WSL2 gibt es ausserdem keine Webcam (ohne usbipd-win) und keine
    virtuelle Kamera; die Windows-Version ist fuer den Betrieb gedacht.
+
+Windows-Installer bauen (Schritt 4)
+-----------------------------------
+   Voraussetzung: Python 3.11, requirements-dev.txt installiert, Inno Setup 6 (https://jrsoftware.org/isdl.php)
+   python packaging\make_installer.py
+     -> holt Modell und Unity-Capture-DLLs (SHA256-geprueft), baut mit PyInstaller (--onedir),
+        fuehrt "Gesichtsfilter.exe --selftest" aus und kompiliert installer_out\Gesichtsfilter-Setup-<Version>.exe
+   Einzelschritte:
+     python packaging\build.py --selftest     nur PyInstaller-Build + Selbsttest
+     python packaging\build.py --print        PyInstaller-Befehl anzeigen
+     python packaging\build.py --console      Variante mit Konsolenfenster zum Fehlersuchen
+   Selbsttest des fertigen Programms (Bericht in Datei, da ohne Konsole):
+     dist\Gesichtsfilter\Gesichtsfilter.exe --selftest bericht.txt
+   Stille Installation mit Unity Capture:
+     Gesichtsfilter-Setup-0.3.0.exe /VERYSILENT /COMPONENTS="main,unity" /CAMNAME="Mein Kameraname"
+
+Marker pro Bild: %APPDATA%\Gesichtsfilter\marker\<SHA256 der Bilddatei>.json (Linux: ~/.gesichtsfilter/marker/)

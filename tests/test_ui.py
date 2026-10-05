@@ -123,14 +123,15 @@ def test_marker_ziehen_aendert_die_gemeinsamen_assets(env):
     assert w.assets.head_markers == C.DEFAULT_MARKERS
 
 
-def test_datei_laden_merkt_marker_per_sidecar(env, tmp_path):
+def test_datei_laden_merkt_marker_im_programmordner(env, tmp_path):
     w, e, boxes = env()
     png = tmp_path / "mein kopf äöü.png"
     demo_assets().head.save_png(png)
     w.load_file(str(png))
     assert w.src["main"] == {"kind": "file", "path": str(png)} and w.assets.head.w == 600
     drag(w.editor, w.assets.head_markers[0][:], (0.2, 0.2))
-    assert P.sidecar_path(png).exists()
+    assert (P.marker_store_dir() / (P.image_hash(png) + ".json")).exists()
+    assert [f.name for f in tmp_path.iterdir() if "marker" in f.name] == []      # nichts neben dem Bild
     w2, _, _ = env()
     w2.load_file(str(png))
     assert w2.assets.head_markers[0] == pytest.approx([0.2, 0.2], abs=0.01)

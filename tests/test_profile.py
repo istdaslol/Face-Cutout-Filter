@@ -46,13 +46,55 @@ def test_unsinnige_marker_werden_verworfen_oder_begrenzt(tmp_path):
     assert d["head_markers"] is None and d["body_marker"] == [[1.0, 0.0]]
 
 
-def test_sidecar(tmp_path):
-    img = tmp_path / "bild.png"
+def test_marker_speicher_nach_pruefsumme(tmp_path):
+    store = tmp_path / "speicher"
+    img = tmp_path / "ordner" / "bild.png"
+    img.parent.mkdir()
+    img.write_bytes(b"bildinhalt")
+    assert P.load_markers(img, 5, 5, store) is None
+    P.save_markers(img, M5, store)
+    assert P.load_markers(img, 5, 5, store) == M5
+    assert [f.name for f in store.iterdir()] == [P.image_hash(img) + ".json"]
+    assert list(img.parent.iterdir()) == [img], "neben dem Bild darf nichts abgelegt werden"
+    # Umbenennen/Verschieben/Kopieren: gleicher Inhalt -> gleiche Marker
+    moved = tmp_path / "anderswo.png"
+    moved.write_bytes(b"bildinhalt")
+    assert P.load_markers(moved, 5, 5, store) == M5
+    # Geaendertes Bild -> keine Marker; anderes Bild stoert nicht
+    other = tmp_path / "x.png"
+    other.write_bytes(b"anderer inhalt")
+    assert P.load_markers(other, 5, 5, store) is None
+    assert P.load_markers(img, 1, 1, store) is None                       # falsche Anzahl
+
+
+def test_gleiches_bild_als_kopf_und_koerper(tmp_path):
+    img = tmp_path / "b.png"
     img.write_bytes(b"x")
-    assert P.load_sidecar(img, 5, 5) is None
-    P.save_sidecar(img, M5)
-    assert P.sidecar_path(img).name == "bild.png.marker.json"
-    assert P.load_sidecar(img, 5, 5) == M5
-    assert P.load_sidecar(img, 1, 1) is None                              # falsche Anzahl
-    P.sidecar_path(img).write_text("kaputt", encoding="utf-8")
-    assert P.load_sidecar(img, 5, 5) is None
+    P.save_markers(img, M5, tmp_path / "s")
+    P.save_markers(img, [[.5, .2]], tmp_path / "s")
+    assert P.load_markers(img, 5, 5, tmp_path / "s") == M5
+    assert P.load_markers(img, 1, 1, tmp_path / "s") == [[.5, .2]]
+
+
+def test_marker_speicher_robust(tmp_path):
+    store = tmp_path / "s"
+    img = tmp_path / "b.png"
+    img.write_bytes(b"x")
+    assert P.load_markers(tmp_path / "gibt_es_nicht.png", 5, 5, store) is None
+    P.save_markers(tmp_path / "gibt_es_nicht.png", M5, store)             # kein Absturz
+    P.save_markers(img, M5, store)
+    (store / (P.image_hash(img) + ".json")).write_text("kaputt", encoding="utf-8")
+    assert P.load_markers(img, 5, 5, store) is None
+    blocker = tmp_path / "datei"
+    blocker.write_text("x")
+    P.save_markers(img, M5, blocker / "unterordner")                       # Ordner nicht anlegbar: kein Absturz
+
+
+def test_alte_marker_json_neben_dem_bild_wird_uebernommen(tmp_path):
+    store = tmp_path / "s"
+    img = tmp_path / "b.png"
+    img.write_bytes(b"x")
+    (tmp_path / "b.png.marker.json").write_text(json.dumps({"version": 1, "markers": M5}), encoding="utf-8")
+    assert P.load_markers(img, 5, 5, store) == M5
+    (tmp_path / "b.png.marker.json").unlink()
+    assert P.load_markers(img, 5, 5, store) == M5                          # jetzt aus dem Speicher
