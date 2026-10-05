@@ -128,6 +128,10 @@ done
 # ----------------------------------------------------------------------------
 # Vorpruefungen
 # ----------------------------------------------------------------------------
+is_wsl() { [[ -n "${WSL_DISTRO_NAME:-}" ]] || grep -qiE 'microsoft|wsl' /proc/version 2>/dev/null; }
+on_windows_drive() { case "$ROOT" in /mnt/[a-zA-Z]/*) return 0 ;; *) return 1 ;; esac; }
+WSL_NOTE=0
+
 preflight() {
   [[ "$(uname -s)" == "Linux" ]] || die "Dieses Skript ist nur fuer Linux (Ubuntu)."
   if (( EUID == 0 )) && (( ! ALLOW_ROOT )); then
@@ -147,6 +151,19 @@ preflight() {
     die "'$PYTHON_ARG' fehlt oder ist nicht Python 3.$PY_MIN - 3.$PY_MAX."
   fi
   [[ -f "$ROOT/requirements.txt" && -f "$ROOT/run.py" ]] || die "Bitte im Projektordner ausfuehren (requirements.txt/run.py fehlen)."
+  if on_windows_drive; then
+    warn "Der Projektordner liegt auf einem Windows-Laufwerk ($ROOT)."
+    warn "Das ist unter WSL sehr langsam, und venv braucht Symlinks, die dort oft fehlen."
+    warn "Besser: Ordner ins Linux-Home kopieren (z.B. nach ~/) und dort ./install.sh starten."
+  fi
+  if is_wsl; then
+    WSL_NOTE=1
+    if (( ! SKIP_VCAM )); then
+      warn "WSL erkannt: Der Standard-WSL2-Kernel unterstuetzt in der Regel kein v4l2loopback."
+      warn "Die virtuelle Kamera wird uebersprungen (wie mit --no-vcam)."
+      SKIP_VCAM=1
+    fi
+  fi
   (( ! DRY_RUN )) || info "Trockenlauf: Es wird nichts veraendert."
 }
 
@@ -227,13 +244,35 @@ ensure_python() {
 # ----------------------------------------------------------------------------
 # 3. Virtuelle Umgebung + Pakete, 4. Modell
 # ----------------------------------------------------------------------------
+venv_hint() {
+  printf '%s\n' "Die virtuelle Umgebung ($VENV) konnte nicht angelegt werden." \
+    "  - Debian/Ubuntu: sudo apt install python3-venv   (bei bestimmter Version: python3.X-venv)" \
+    "  - Liegt der Ordner auf einem Windows-Laufwerk (/mnt/c/...)? Dort fehlen oft Symlinks, die venv braucht." \
+    "    Kopiere den Projektordner ins Linux-Home (z.B. nach ~/) und starte dort ./install.sh erneut." \
+    "  Danach ./install.sh erneut starten."
+}
+
 setup_venv() {
   step "Virtuelle Umgebung und Python-Pakete (kann einige Minuten dauern)"
+  # Eine vorhandene .venv wird bewusst NICHT angefasst, ausser es ist eine Linux-Umgebung (bin/python)
+  # mit nicht unterstuetzter Python-Version. Fremde Umgebungen, z.B. eine Windows-venv (Scripts/) im
+  # gemeinsamen Ordner, bleiben unberuehrt; dann bricht der pip-Aufruf unten mit einer Fehlermeldung ab.
   if [[ -x "$VENV/bin/python" ]] && ! "$VENV/bin/python" -c "import sys; assert $PY_MIN <= sys.version_info[1] <= $PY_MAX" 2>/dev/null; then
     warn ".venv gehoert zu einer nicht unterstuetzten Python-Version und wird neu angelegt."
     run rm -rf "$VENV"
   fi
-  [[ -d "$VENV" ]] || run "$PYTHON" -m venv "$VENV"
+  if [[ ! -d "$VENV" ]]; then
+    # Hier gab es .venv vorher nicht: bei einem Fehler darf nichts Halbfertiges zurueckbleiben,
+    # sonst scheitert der naechste Lauf (der Ordner waere dann "vorhanden").
+    if ! run "$PYTHON" -m venv "$VENV"; then
+      rm -rf "$VENV"
+      die "$(venv_hint)"
+    fi
+    if (( ! DRY_RUN )) && [[ ! -x "$VENV/bin/python" ]]; then
+      rm -rf "$VENV"
+      die "$(venv_hint)"
+    fi
+  fi
   run "$VENV/bin/python" -m pip install --upgrade pip
   run "$VENV/bin/python" -m pip install --default-timeout 100 --retries 5 -r "$ROOT/requirements.txt"
   ok "Pakete installiert"
@@ -362,5 +401,9 @@ main() {
   install_launcher
   printf '\n%sFertig.%s Starten mit:  %s%s%s   (oder im Anwendungsmenue: "Gesichtsfilter")\n' "$G" "$N" "$B" "$APP_CMD" "$N"
   (( SKIP_VCAM )) || info "Virtuelle Kamera: in Zoom/Discord/OBS die Kamera \"$VCAM_LABEL\" (/dev/video$VCAM_NR) waehlen."
+  if (( WSL_NOTE )); then
+    info "WSL2: Die Oberflaeche braucht WSLg (Windows 11 bzw. aktuelles Windows 10). Webcams reicht WSL2 nicht"
+    info "von selbst durch (dafuer usbipd-win) und es gibt keine virtuelle Kamera. Zum Streamen die Windows-Version nutzen."
+  fi
 }
 main

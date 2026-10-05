@@ -39,3 +39,13 @@ Linux (Ubuntu, apt)
    Hinweis: Bei aktivem Secure Boot muss das v4l2loopback-Modul signiert sein (siehe Meldung des Skripts).
 
 Foto-Ordner:  <Bilder>/Gesichtsfilter   (im Programm mit "Ordner ..." aenderbar)
+
+WSL2 und Windows im selben Ordner
+---------------------------------
+   Eine Windows-.venv (Scripts\python.exe) und eine Linux-.venv (bin/python) sind verschieden aufgebaut und
+   koennen nicht gemeinsam in einem Ordner liegen. install.sh erkennt das bewusst nicht und fasst eine
+   vorhandene fremde .venv nicht an; der Lauf bricht dann mit
+   ".venv/bin/python: No such file or directory" ab.
+   Abhilfe: Projekt fuer WSL ins Linux-Home kopieren (z.B. ~/Face-Cutout-Filter) und dort installieren,
+   oder die Windows-.venv umbenennen. Unter WSL2 gibt es ausserdem keine Webcam (ohne usbipd-win) und keine
+   virtuelle Kamera; die Windows-Version ist fuer den Betrieb gedacht.
