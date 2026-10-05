@@ -130,3 +130,19 @@ def test_fetch_lehnt_falsche_pruefsumme_ab_und_nutzt_cache(tmp_path, monkeypatch
 def test_icon_ist_gueltig():
     ico = (ROOT / "assets" / "app.ico").read_bytes()
     assert ico[:4] == b"\x00\x00\x01\x00" and int.from_bytes(ico[4:6], "little") >= 6
+
+
+def test_workflow_release():
+    """Der GitHub-Actions-Workflow ruft nur Skripte/Dateien auf, die es gibt, und baut bei Tags 'v*'."""
+    import re
+    wf = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    assert re.search(r'tags:\s*\n\s*-\s*"v\*"', wf) and "windows-latest" in wf
+    assert 'PYTHON_VERSION: "3.11"' in wf and "contents: write" in wf
+    for script in re.findall(r"python ((?:packaging|tools)/[\w./]+\.py)", wf):
+        assert (ROOT / script).exists(), script
+    # Reihenfolge: Modell -> Build -> Unity-Filter -> Installer
+    order = [wf.index(s) for s in ("tools/fetch_model.py", "packaging/build.py --selftest",
+                                   "packaging/fetch_unitycapture.py", "packaging/make_installer.py --skip-build")]
+    assert order == sorted(order)
+    assert "gh release create" in wf and "Gesichtsfilter-Setup-" in wf
+    assert "\t" not in wf  # YAML erlaubt keine Tabulatoren

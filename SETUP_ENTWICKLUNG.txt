@@ -66,3 +66,11 @@ Windows-Installer bauen (Schritt 4)
      Gesichtsfilter-Setup-0.3.0.exe /VERYSILENT /COMPONENTS="main,unity" /CAMNAME="Mein Kameraname"
 
 Marker pro Bild: %APPDATA%\Gesichtsfilter\marker\<SHA256 der Bilddatei>.json (Linux: ~/.gesichtsfilter/marker/)
+
+Release ueber GitHub Actions (.github/workflows/release.yml)
+------------------------------------------------------------
+  1. Version in src/gesichtsfilter/__init__.py anheben und committen.
+  2. Tag setzen und hochladen:   git tag v0.3.0   und   git push origin v0.3.0
+     (Tag und Programmversion muessen uebereinstimmen, sonst bricht der Lauf ab.)
+  3. Der Lauf testet, baut, fuehrt den Selbsttest aus, baut die Setup.exe und legt ein Release an.
+  Ohne Tag: Actions -> Release -> "Run workflow" baut nur und legt die Setup.exe als Artefakt ab.

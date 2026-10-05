@@ -1,0 +1,107 @@
+# Baut bei jedem Tag "v*" (z. B. v0.3.0) die Windows-Setup.exe und haengt sie an ein GitHub-Release.
+# Ablauf: Tag pruefen -> Abhaengigkeiten -> Tests -> PyInstaller (+ Selbsttest) -> Inno Setup -> Release.
+# Manuell testen (ohne Release): Actions -> "Release" -> "Run workflow"; die Setup.exe liegt dann als Artefakt am Lauf.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+# Zum Anlegen des Releases wird Schreibrecht auf den Repository-Inhalt gebraucht (GITHUB_TOKEN).
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: "3.11"          # wie in requirements.txt beschrieben: Windows-Build mit Python 3.11
+  QT_QPA_PLATFORM: offscreen      # Tests ohne sichtbares Fenster
+  PYTHONUTF8: "1"
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Quellcode holen
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Version lesen und mit dem Tag vergleichen
+        id: ver
+        shell: bash
+        run: |
+          VERSION=$(python -c "import re,pathlib; print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', pathlib.Path('src/gesichtsfilter/__init__.py').read_text(encoding='utf-8')).group(1))")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Programmversion: $VERSION"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v${VERSION}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} passt nicht zur Programmversion v${VERSION} (src/gesichtsfilter/__init__.py)."
+            exit 1
+          fi
+
+      - name: Abhaengigkeiten installieren
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Gesichtsmodell holen
+        run: python tools/fetch_model.py
+
+      - name: Tests
+        run: python -m pytest -q
+
+      - name: Programm bauen (PyInstaller) und Selbsttest
+        run: python packaging/build.py --selftest
+
+      - name: Unity-Capture-Filter holen (SHA256-geprueft)
+        run: python packaging/fetch_unitycapture.py
+
+      - name: Inno Setup bereitstellen
+        shell: pwsh
+        run: |
+          $iscc = Get-Command iscc -ErrorAction SilentlyContinue
+          if (-not $iscc -and -not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup --no-progress -y
+          }
+
+      - name: Installer bauen (Inno Setup)
+        run: python packaging/make_installer.py --skip-build
+
+      - name: Pruefsumme erzeugen
+        id: pack
+        shell: pwsh
+        run: |
+          $exe = "installer_out/Gesichtsfilter-Setup-${{ steps.ver.outputs.version }}.exe"
+          if (-not (Test-Path $exe)) { throw "Setup.exe fehlt: $exe" }
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  $(Split-Path $exe -Leaf)" | Out-File -Encoding ascii "$exe.sha256"
+          "exe=$exe" >> $env:GITHUB_OUTPUT
+
+      - name: Als Artefakt ablegen
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gesichtsfilter-Setup-${{ steps.ver.outputs.version }}
+          path: |
+            ${{ steps.pack.outputs.exe }}
+            ${{ steps.pack.outputs.exe }}.sha256
+          if-no-files-found: error
+
+      - name: Release anlegen und Setup.exe anhaengen
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            "${{ steps.pack.outputs.exe }}" "${{ steps.pack.outputs.exe }}.sha256" \
+            --title "Gesichtsfilter ${{ steps.ver.outputs.version }}" \
+            --generate-notes \
+            --notes "Windows-Installer. Fuer die virtuelle Kamera wird OBS Studio (Virtual Camera) oder die im Installer waehlbare Komponente Unity Capture benoetigt. Dieses Programm wurde mit Hilfe von KI (Claude von Anthropic) erstellt und wird ohne Gewaehr bereitgestellt."
