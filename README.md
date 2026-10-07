@@ -1,99 +1,100 @@
 # Gesichtsfilter
 
-Gesichtsfilter turns your webcam into a cartoon character: your eyes and mouth are cut out of the live
-camera image and placed onto a PNG picture (a drawing, a photo, a mascot), which follows your head.
-The result can be sent to Zoom, Teams, Discord, OBS and similar programs as a virtual camera.
+Gesichtsfilter macht aus deiner Webcam eine Comicfigur: Augen und Mund werden live aus dem Kamerabild
+ausgeschnitten und auf ein PNG-Bild gesetzt (Zeichnung, Foto, Maskottchen), das deinem Kopf folgt.
+Das Ergebnis kann als virtuelle Kamera an Zoom, Teams, Discord, OBS und aehnliche Programme gesendet werden.
 
-This is the native Windows port (Python, PySide6) of the browser version `gesichts-filter.html`.
-The user interface is in German. Everything runs locally on your computer, no image data is sent anywhere,
-and the face model is bundled (no download at runtime).
+Dies ist die native Windows-Version (Python, PySide6) der Browser-Version `gesichts-filter.html`.
+Die Oberflaeche ist deutsch. Alles laeuft lokal auf deinem Rechner, es werden keine Bilddaten gesendet,
+und das Gesichtsmodell ist mitgeliefert (kein Download zur Laufzeit).
 
-Deutsche Version: [README.de.md](README.de.md)
+English version: [README.md](README.md)
 
-> **Notice:** This software was generated with the help of AI (Claude by Anthropic). It is provided as is,
-> without warranty of any kind. Please test it yourself before relying on it.
+> **Hinweis:** Diese Software wurde mit Hilfe von KI (Claude von Anthropic) erstellt. Sie wird so, wie sie
+> ist, ohne jegliche Gewaehr bereitgestellt. Bitte teste sie selbst, bevor du dich darauf verlaesst.
 
-Current version: 0.3.0
+Aktuelle Version: 0.3.0
 
-## Features
+## Funktionen
 
-- Three modes: "Einfach" (one PNG follows the face, no body), one PNG with markers (head, neck, body),
-  or two PNGs (head + body).
-- Eyes and mouth are live from the camera, with separate size and cut-out margin controls for eyes and mouth.
-- Optional eyebrows, mirroring, soft edges, rest pose, head-following strength, head tracking on/off.
-- Backgrounds: camera image, green screen, black, white.
-- Output as virtual camera (OBS Virtual Camera, Unity Capture on Windows, v4l2loopback on Linux).
-- Photo button and "Foto in 3 s" (saved to your Pictures folder, subfolder `Gesichtsfilter`).
-- Save and load profiles (all settings) as files. Markers are stored per image (by checksum), not next to the image.
-- Performance options: frame rate limit, tracking every frame or every 2nd frame, CPU/GPU tracking,
-  low priority, preview on/off.
+- Drei Modi: "Einfach" (ein PNG folgt dem Gesicht, ohne Koerper), ein PNG mit Markern (Kopf, Hals, Koerper)
+  oder zwei PNGs (Kopf + Koerper).
+- Augen und Mund kommen live von der Kamera; Groesse und Ausschnitt-Rand sind fuer Augen und Mund getrennt einstellbar.
+- Optional: Augenbrauen, Spiegeln, weiche Kante, Ruhelage, Staerke des Kopf-Folgens, Kopfverfolgung an/aus.
+- Hintergruende: Kamerabild, Greenscreen, Schwarz, Weiss.
+- Ausgabe als virtuelle Kamera (OBS Virtual Camera, Unity Capture unter Windows, v4l2loopback unter Linux).
+- Foto-Knopf und "Foto in 3 s" (gespeichert im Bilder-Ordner, Unterordner `Gesichtsfilter`).
+- Profile (alle Einstellungen) als Datei speichern und laden. Marker werden pro Bild (ueber die Pruefsumme)
+  gespeichert und nicht neben dem Bild.
+- Leistungsoptionen: Bildratenlimit, Tracking jeden oder jeden 2. Frame, Tracking auf CPU/GPU,
+  niedrige Prioritaet, Vorschau an/aus.
 
-## Installation (Windows 10/11, 64 bit)
+## Installation (Windows 10/11, 64 Bit)
 
-1. Download `Gesichtsfilter-Setup-<version>.exe` from the
-   [Releases](../../releases) page and run it.
-2. In the installer choose a virtual camera option (see below).
-3. Start "Gesichtsfilter" from the Start menu.
+1. `Gesichtsfilter-Setup-<Version>.exe` von der Seite
+   [Releases](../../releases) herunterladen und ausfuehren.
+2. Im Installer eine Option fuer die virtuelle Kamera waehlen (siehe unten).
+3. "Gesichtsfilter" im Startmenue starten.
 
-Windows SmartScreen may warn about an unknown publisher, because the installer is not code-signed.
-Each release also contains a `.sha256` file to verify the download:
+Windows SmartScreen kann vor einem unbekannten Herausgeber warnen, weil der Installer nicht signiert ist.
+Jedes Release enthaelt eine `.sha256`-Datei zur Pruefung des Downloads:
 
-    certutil -hashfile Gesichtsfilter-Setup-<version>.exe SHA256
+    certutil -hashfile Gesichtsfilter-Setup-<Version>.exe SHA256
 
-### Virtual camera: prerequisite
+### Virtuelle Kamera: Voraussetzung
 
-To use the filtered picture in other programs, ONE virtual camera driver is needed:
+Um das gefilterte Bild in anderen Programmen zu nutzen, wird EIN Treiber fuer eine virtuelle Kamera benoetigt:
 
-- **OBS Studio** (https://obsproject.com), installed once and started at least once so that
-  "OBS Virtual Camera" is registered. You do not need to keep OBS open. OR
-- **Unity Capture**: an optional component of this installer ("Unity Capture (virtuelle Kamera)"; not
-  selected by default). You can choose the camera name, default "Gesichtsfilter". Unity Capture is
-  MIT-licensed (license text is installed with the program).
+- **OBS Studio** (https://obsproject.com), einmal installiert und mindestens einmal gestartet, damit
+  "OBS Virtual Camera" registriert wird. OBS muss danach nicht geoeffnet bleiben. ODER
+- **Unity Capture**: optionale Komponente dieses Installers ("Unity Capture (virtuelle Kamera)"; standardmaessig
+  nicht ausgewaehlt). Der Kameraname ist waehlbar, Standard ist "Gesichtsfilter". Unity Capture steht unter
+  der MIT-Lizenz (der Lizenztext wird mit installiert).
 
-Without a virtual camera driver the program still works (preview, photos); it only shows a hint
-instead of the virtual camera. In the program you can pick the backend ("Automatisch", OBS Virtual Camera
-or Unity Capture) and, for Unity Capture, the device name.
+Ohne Treiber fuer eine virtuelle Kamera funktioniert das Programm weiterhin (Vorschau, Fotos); es zeigt
+statt der virtuellen Kamera nur einen Hinweis an. Im Programm kann das Verfahren gewaehlt werden
+("Automatisch", OBS Virtual Camera oder Unity Capture) und bei Unity Capture der Geraetename.
 
-Silent installation (for administrators):
+Stille Installation (fuer Administratoren):
 
-    Gesichtsfilter-Setup-<version>.exe /VERYSILENT /COMPONENTS="main,unity" /CAMNAME="My camera"
+    Gesichtsfilter-Setup-<Version>.exe /VERYSILENT /COMPONENTS="main,unity" /CAMNAME="Meine Kamera"
 
-## Quick start
+## Schnellstart
 
-1. Choose your camera and click "Kamera starten".
-2. Choose a mode and load a PNG ("Eigene Datei", "Erdnuss" example, or "Demo"). Drag and drop and Ctrl+V also work.
-3. Set the markers (eyes, mouth, and in the other modes head/neck/body anchors) by dragging them in the editor.
-4. Sit straight in front of the camera and click "Ruhelage setzen".
-5. Click "Virtuelle Kamera starten" and select the camera "Gesichtsfilter" (or "OBS Virtual Camera")
-   in your video program.
+1. Kamera waehlen und "Kamera starten" klicken.
+2. Modus waehlen und ein PNG laden ("Eigene Datei", Beispiel "Erdnuss" oder "Demo"). Drag & Drop und Strg+V gehen auch.
+3. Marker setzen (Augen, Mund und in den anderen Modi Kopf-/Hals-/Koerper-Anker) und im Editor verschieben.
+4. Gerade vor der Kamera sitzen und "Ruhelage setzen" klicken.
+5. "Virtuelle Kamera starten" klicken und im Videoprogramm die Kamera "Gesichtsfilter" (oder "OBS Virtual Camera")
+   auswaehlen.
 
-## Where data is stored
+## Wo Daten gespeichert werden
 
-| What | Windows | Linux |
+| Was | Windows | Linux |
 | --- | --- | --- |
-| Last used settings | `%APPDATA%\Gesichtsfilter\zuletzt.json` | `~/.gesichtsfilter/` |
-| Markers per image | `%APPDATA%\Gesichtsfilter\marker\<sha256>.json` | `~/.gesichtsfilter/marker/` |
-| Log file | `%APPDATA%\Gesichtsfilter\log.txt` | `~/.gesichtsfilter/` |
-| Photos | `Pictures\Gesichtsfilter` | `~/Pictures/Gesichtsfilter` |
+| Zuletzt benutzte Einstellungen | `%APPDATA%\Gesichtsfilter\zuletzt.json` | `~/.gesichtsfilter/` |
+| Marker pro Bild | `%APPDATA%\Gesichtsfilter\marker\<sha256>.json` | `~/.gesichtsfilter/marker/` |
+| Log-Datei | `%APPDATA%\Gesichtsfilter\log.txt` | `~/.gesichtsfilter/` |
+| Fotos | `Bilder\Gesichtsfilter` | `~/Pictures/Gesichtsfilter` |
 
-To reset the settings, delete `zuletzt.json`.
+Zum Zuruecksetzen der Einstellungen `zuletzt.json` loeschen.
 
 ## Linux (Ubuntu, apt)
 
     chmod +x install.sh
-    ./install.sh --dry-run     # shows what would happen
-    ./install.sh               # system packages, Python 3.11-3.13, .venv, packages, model, v4l2loopback
-    gesichtsfilter             # starts the program
+    ./install.sh --dry-run     # zeigt nur, was passieren wuerde
+    ./install.sh               # Systempakete, Python 3.11-3.13, .venv, Pakete, Modell, v4l2loopback
+    gesichtsfilter             # startet das Programm
     ./install.sh --uninstall
 
-The script creates the virtual camera `/dev/video10` named "Gesichtsfilter" (v4l2loopback). With Secure
-Boot the kernel module must be signed (the script tells you). Tested on Ubuntu 24.04; other distributions
-are untested. Under WSL2 there is no webcam and no virtual camera; use the Windows version there.
-More options: `./install.sh --help`.
+Das Skript richtet die virtuelle Kamera `/dev/video10` mit dem Namen "Gesichtsfilter" ein (v4l2loopback).
+Bei aktivem Secure Boot muss das Kernelmodul signiert sein (das Skript gibt einen Hinweis). Getestet mit
+Ubuntu 24.04; andere Distributionen sind ungetestet. Unter WSL2 gibt es keine Webcam und keine virtuelle
+Kamera; dort bitte die Windows-Version nutzen. Weitere Optionen: `./install.sh --help`.
 
-## Development
+## Entwicklung
 
-Requirements: Python 3.11 (64 bit) for Windows builds; Python 3.11-3.13 for running from source.
+Voraussetzung: Python 3.11 (64 Bit) fuer Windows-Builds; zum Starten aus dem Quelltext Python 3.11-3.13.
 
     py -3.11 -m venv .venv
     .\.venv\Scripts\Activate.ps1
@@ -102,36 +103,36 @@ Requirements: Python 3.11 (64 bit) for Windows builds; Python 3.11-3.13 for runn
     pytest -q
     python run.py
 
-Build the installer locally (needs [Inno Setup 6](https://jrsoftware.org/isdl.php)):
+Installer lokal bauen (benoetigt [Inno Setup 6](https://jrsoftware.org/isdl.php)):
 
     python packaging\make_installer.py
 
-This fetches the model and the Unity Capture filters (pinned commit, SHA256 verified), builds with
-PyInstaller in `--onedir` mode, runs the built program's `--selftest`, and compiles
-`installer_out\Gesichtsfilter-Setup-<version>.exe`. See `SETUP_ENTWICKLUNG.txt` for details.
+Das holt Modell und Unity-Capture-Filter (fester Commit, SHA256 geprueft), baut mit PyInstaller im
+`--onedir`-Modus, fuehrt den `--selftest` des gebauten Programms aus und erzeugt
+`installer_out\Gesichtsfilter-Setup-<Version>.exe`. Einzelheiten stehen in `SETUP_ENTWICKLUNG.txt`.
 
 ### Releases
 
-Pushing a tag `v<version>` (for example `v0.3.0`; it must match `__version__` in
-`src/gesichtsfilter/__init__.py`) starts the GitHub Actions workflow `.github/workflows/release.yml`.
-It runs the tests, builds the program and the installer on `windows-latest`, and attaches
-`Gesichtsfilter-Setup-<version>.exe` plus a SHA256 file to a GitHub release.
+Ein Tag `v<Version>` (zum Beispiel `v0.3.0`; er muss zu `__version__` in
+`src/gesichtsfilter/__init__.py` passen) startet den GitHub-Actions-Workflow `.github/workflows/release.yml`.
+Er fuehrt die Tests aus, baut Programm und Installer auf `windows-latest` und haengt
+`Gesichtsfilter-Setup-<Version>.exe` samt SHA256-Datei an ein GitHub-Release.
 
-## Troubleshooting
+## Fehlersuche
 
-- **Hint "Es wurde keine virtuelle Kamera gefunden":** install OBS Studio and start it once, or reinstall with the
-  Unity Capture component.
-- **Camera name not shown in the video program:** restart the video program after starting the virtual camera.
-- **Program does not start:** look at `%APPDATA%\Gesichtsfilter\log.txt`; run
-  `Gesichtsfilter.exe --selftest report.txt` and check `report.txt`.
-- **No face detected:** better light, face the camera; for GPU problems choose "Tracking auf CPU".
+- **Hinweis "Es wurde keine virtuelle Kamera gefunden":** OBS Studio installieren und einmal starten oder
+  den Installer mit der Komponente Unity Capture erneut ausfuehren.
+- **Kameraname erscheint im Videoprogramm nicht:** Videoprogramm nach dem Start der virtuellen Kamera neu starten.
+- **Programm startet nicht:** `%APPDATA%\Gesichtsfilter\log.txt` ansehen; `Gesichtsfilter.exe --selftest bericht.txt`
+  ausfuehren und `bericht.txt` pruefen.
+- **Kein Gesicht erkannt:** besseres Licht, zur Kamera schauen; bei GPU-Problemen "Tracking auf CPU" waehlen.
 
-## Third-party components
+## Komponenten von Drittanbietern
 
-MediaPipe (Apache-2.0, face landmark model), OpenCV, NumPy, PySide6 / Qt (LGPL), pyvirtualcam,
-Unity Capture by Bernhard Schelling (MIT). Please check the respective licenses before redistributing.
+MediaPipe (Apache-2.0, Gesichtsmodell), OpenCV, NumPy, PySide6 / Qt (LGPL), pyvirtualcam,
+Unity Capture von Bernhard Schelling (MIT). Bitte vor einer Weitergabe die jeweiligen Lizenzen pruefen.
 
-## License
+## Lizenz
 
-Gesichtsfilter is licensed under the GNU General Public License v3.0 (GPL-3.0); see the `LICENSE` file in the repository.
-The third-party components above keep their own licenses, which are compatible with the GPL-3.0.
+Gesichtsfilter steht unter der GNU General Public License v3.0 (GPL-3.0); siehe Datei `LICENSE` im Repository.
+Die oben genannten Komponenten von Drittanbietern behalten ihre eigenen Lizenzen, die mit der GPL-3.0 vereinbar sind.
